@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package recall.rpc.v1;
 
+option go_package = "recall/proto/recall/rpc/v1;rpcv1";
+
 // PayloadEncoding identifies the protobuf payload encoding used for a unary
 // stdio RPC call.
 enum PayloadEncoding {
