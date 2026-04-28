@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -67,6 +69,38 @@ func TestRunLoadsConfigSearchesAndRendersResults(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Fatalf("stdout %q does not contain %q", output, want)
 		}
+	}
+}
+
+func TestRunLoadsExplicitConfigPath(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.txtpb")
+	if err := os.WriteFile(configPath, []byte(`
+providers {
+  id: "configured"
+  enabled: true
+  weight: 1.0
+  timeout_ms: 1500
+  default_limit: 10
+  stdio { command: "provider" }
+}
+`), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	var providerCount int
+	app := App{
+		Stdout: &bytes.Buffer{},
+		Stderr: &bytes.Buffer{},
+		Search: func(_ context.Context, cfg *configv1.RecallConfig, _ string, _ orchestrator.Options) (*orchestrator.Result, error) {
+			providerCount = len(cfg.GetProviders())
+			return &orchestrator.Result{}, nil
+		},
+	}
+
+	if err := app.Run(context.Background(), []string{"--config", configPath, "query"}); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if providerCount != 1 {
+		t.Fatalf("provider count = %d, want config loaded from --config", providerCount)
 	}
 }
 

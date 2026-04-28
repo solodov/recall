@@ -42,10 +42,6 @@ func (app App) Run(ctx context.Context, args []string) error {
 	if stderr == nil {
 		stderr = io.Discard
 	}
-	loadConfig := app.LoadConfig
-	if loadConfig == nil {
-		loadConfig = config.LoadDefault
-	}
 	search := app.Search
 	if search == nil {
 		search = orchestrator.Search
@@ -56,7 +52,7 @@ func (app App) Run(ctx context.Context, args []string) error {
 		return err
 	}
 
-	cfg, err := loadConfig()
+	cfg, err := app.loadConfig(parsed.configPath)
 	if err != nil {
 		return err
 	}
@@ -80,12 +76,13 @@ func (app App) Run(ctx context.Context, args []string) error {
 }
 
 type parsedArgs struct {
-	query   string
-	sources []string
-	limit   uint32
-	kinds   []string
-	grouped bool
-	format  outputFormat
+	query      string
+	configPath string
+	sources    []string
+	limit      uint32
+	kinds      []string
+	grouped    bool
+	format     outputFormat
 }
 
 type outputFormat string
@@ -98,6 +95,7 @@ const (
 func parseArgs(args []string, stderr io.Writer) (parsedArgs, error) {
 	flags := flag.NewFlagSet("recall", flag.ContinueOnError)
 	flags.SetOutput(stderr)
+	configPath := flags.String("config", "", "path to the provider registry txtpb file")
 	var sources stringListFlag
 	flags.Var(&sources, "source", "comma-separated provider IDs to query")
 	var kinds stringListFlag
@@ -111,7 +109,7 @@ func parseArgs(args []string, stderr io.Writer) (parsedArgs, error) {
 
 	query := strings.TrimSpace(strings.Join(flags.Args(), " "))
 	if query == "" {
-		return parsedArgs{}, errors.New("usage: recall [--source provider[,provider] ...] [--limit n] QUERY")
+		return parsedArgs{}, errors.New("usage: recall [--config path] [--source provider[,provider] ...] [--limit n] QUERY")
 	}
 	if *limit > uint(^uint32(0)) {
 		return parsedArgs{}, fmt.Errorf("--limit %d exceeds uint32 maximum", *limit)
@@ -122,7 +120,17 @@ func parseArgs(args []string, stderr io.Writer) (parsedArgs, error) {
 	default:
 		return parsedArgs{}, fmt.Errorf("unsupported --format %q; use human or json", *format)
 	}
-	return parsedArgs{query: query, sources: sources, limit: uint32(*limit), kinds: kinds, grouped: *grouped, format: parsedFormat}, nil
+	return parsedArgs{query: query, configPath: *configPath, sources: sources, limit: uint32(*limit), kinds: kinds, grouped: *grouped, format: parsedFormat}, nil
+}
+
+func (app App) loadConfig(configPath string) (*configv1.RecallConfig, error) {
+	if app.LoadConfig != nil {
+		return app.LoadConfig()
+	}
+	if strings.TrimSpace(configPath) != "" {
+		return config.LoadFile(configPath)
+	}
+	return config.LoadDefault()
 }
 
 func renderFailures(writer io.Writer, failures []orchestrator.ProviderFailure) {
