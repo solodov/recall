@@ -1,10 +1,10 @@
 ---
 id: 20260428-131631-federated-recall-cli-protobuf-searchprovider
 title: Federated recall CLI with protobuf SearchProvider contract
-status: implementing
+status: done
 created: 2026-04-28
 updated: 2026-04-28
-currentPhase: 11
+currentPhase: 
 externalRef: 
 origin: 
 ---
@@ -54,8 +54,8 @@ Breaking provider API changes create a new package such as `recall.search.v2`. A
 - [x] 8. Centralize rendering around named URIs and groups
 - [x] 9. Blend provider-local result order instead of provider scores
 - [x] 10. Adapt org-search and shiny as real providers
-- [ ] 11. Keep query semantics source-specific
-- [ ] 12. Leave room for future providers and aggregate indexing
+- [x] 11. Keep query semantics source-specific
+- [x] 12. Leave room for future providers and aggregate indexing
 
 ## Phase Details
 
