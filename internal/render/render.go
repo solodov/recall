@@ -31,10 +31,10 @@ func WriteHuman(writer io.Writer, result *orchestrator.Result, options HumanOpti
 	if options.Grouped {
 		return writeGroupedHuman(writer, result)
 	}
+	for _, hit := range ungroupedHits(result) {
+		writeHumanHit(writer, hit, "")
+	}
 	for _, response := range result.Responses {
-		for _, hit := range response.Hits {
-			writeHumanHit(writer, hit, "")
-		}
 		writeHumanWarnings(writer, response.Warnings)
 	}
 	return nil
@@ -108,6 +108,19 @@ func WriteJSON(writer io.Writer, result *orchestrator.Result) error {
 				Response:   responseJSON,
 			})
 		}
+		machineResult.BlendedHits = make([]machineBlendedHit, 0, len(result.BlendedHits))
+		for _, hit := range result.BlendedHits {
+			hitJSON, err := marshalSearchHit(hit.Normalized.Hit)
+			if err != nil {
+				return err
+			}
+			machineResult.BlendedHits = append(machineResult.BlendedHits, machineBlendedHit{
+				ProviderID:   hit.Normalized.ProviderID,
+				ProviderRank: hit.Normalized.ProviderRank,
+				BlendedScore: hit.BlendedScore,
+				Hit:          hitJSON,
+			})
+		}
 		for _, failure := range result.Failures {
 			if failure.Err == nil {
 				continue
@@ -138,6 +151,20 @@ func marshalProviderResponse(response orchestrator.ProviderResponse) (json.RawMe
 	return json.RawMessage(payload), nil
 }
 
+func marshalSearchHit(hit *searchv1.SearchHit) (json.RawMessage, error) {
+	if hit == nil {
+		return json.RawMessage("null"), nil
+	}
+	payload, err := protojson.MarshalOptions{
+		EmitUnpopulated: true,
+		UseProtoNames:   true,
+	}.Marshal(hit)
+	if err != nil {
+		return nil, fmt.Errorf("marshal blended hit as JSON: %w", err)
+	}
+	return json.RawMessage(payload), nil
+}
+
 func synthesizeRawResponse(response orchestrator.ProviderResponse) *searchv1.SearchResponse {
 	raw := &searchv1.SearchResponse{
 		Hits:     make([]*searchv1.SearchHit, 0, len(response.Hits)),
@@ -161,6 +188,22 @@ type groupedHits struct {
 	title string
 	uris  []*searchv1.NamedUri
 	hits  []normalize.Hit
+}
+
+func ungroupedHits(result *orchestrator.Result) []normalize.Hit {
+	if len(result.BlendedHits) == 0 {
+		hits := []normalize.Hit{}
+		for _, response := range result.Responses {
+			hits = append(hits, response.Hits...)
+		}
+		return hits
+	}
+
+	hits := make([]normalize.Hit, 0, len(result.BlendedHits))
+	for _, blended := range result.BlendedHits {
+		hits = append(hits, blended.Normalized)
+	}
+	return hits
 }
 
 func groupHits(hits []normalize.Hit) []groupedHits {
@@ -215,13 +258,21 @@ func singleLine(value string) string {
 }
 
 type machineResult struct {
-	Responses []machineProviderResponse `json:"responses"`
-	Failures  []machineFailure          `json:"failures,omitempty"`
+	Responses   []machineProviderResponse `json:"responses"`
+	BlendedHits []machineBlendedHit       `json:"blended_hits,omitempty"`
+	Failures    []machineFailure          `json:"failures,omitempty"`
 }
 
 type machineProviderResponse struct {
 	ProviderID string          `json:"provider_id"`
 	Response   json.RawMessage `json:"response"`
+}
+
+type machineBlendedHit struct {
+	ProviderID   string          `json:"provider_id"`
+	ProviderRank int             `json:"provider_rank"`
+	BlendedScore float64         `json:"blended_score"`
+	Hit          json.RawMessage `json:"hit"`
 }
 
 type machineFailure struct {

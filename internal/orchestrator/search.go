@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"recall/internal/normalize"
+	"recall/internal/rank"
 	"recall/internal/searchclient"
 	"recall/internal/stdiorpc"
 	configv1 "recall/proto/recall/config/v1"
@@ -38,8 +39,9 @@ type Options struct {
 // Result contains successful provider responses and independent provider
 // failures from one query fan-out.
 type Result struct {
-	Responses []ProviderResponse
-	Failures  []ProviderFailure
+	Responses   []ProviderResponse
+	BlendedHits []rank.Hit
+	Failures    []ProviderFailure
 }
 
 // ProviderResponse is one successful provider response after validation and
@@ -107,6 +109,7 @@ func Search(ctx context.Context, cfg *configv1.RecallConfig, query string, optio
 	if len(result.Responses) == 0 && len(result.Failures) > 0 {
 		return result, errors.New("all selected providers failed")
 	}
+	result.BlendedHits = rank.Blend(result.Responses, providerWeights(selected))
 	return result, nil
 }
 
@@ -183,6 +186,17 @@ func selectProviders(providers []*configv1.Provider, sources []string) ([]*confi
 		selected = append(selected, provider)
 	}
 	return selected, nil
+}
+
+func providerWeights(providers []*configv1.Provider) map[string]float64 {
+	weights := make(map[string]float64, len(providers))
+	for _, provider := range providers {
+		if provider == nil {
+			continue
+		}
+		weights[provider.GetId()] = provider.GetWeight()
+	}
+	return weights
 }
 
 func sourceFilter(sources []string) (map[string]bool, error) {
