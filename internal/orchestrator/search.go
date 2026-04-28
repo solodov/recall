@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"recall/internal/normalize"
 	"recall/internal/searchclient"
 	"recall/internal/stdiorpc"
 	configv1 "recall/proto/recall/config/v1"
@@ -41,12 +42,9 @@ type Result struct {
 	Failures  []ProviderFailure
 }
 
-// ProviderResponse is one successful provider response annotated with recall's
-// configured provider identity.
-type ProviderResponse struct {
-	ProviderID string
-	Response   *searchv1.SearchResponse
-}
+// ProviderResponse is one successful provider response after validation and
+// annotation with recall's configured provider identity.
+type ProviderResponse = normalize.ProviderResponse
 
 // ProviderFailure records one provider-specific failure without discarding
 // successful results from other providers.
@@ -144,7 +142,11 @@ func searchOneProvider(ctx context.Context, index int, provider *configv1.Provid
 	if response == nil {
 		return indexedProviderResult{index: index, failure: ProviderFailure{ProviderID: providerID, Err: errors.New("provider returned nil response")}}
 	}
-	return indexedProviderResult{index: index, response: ProviderResponse{ProviderID: providerID, Response: response}}
+	normalized, err := normalize.SearchResponse(providerID, response)
+	if err != nil {
+		return indexedProviderResult{index: index, failure: ProviderFailure{ProviderID: providerID, Err: fmt.Errorf("invalid provider response: %w", err)}}
+	}
+	return indexedProviderResult{index: index, response: normalized}
 }
 
 func selectProviders(providers []*configv1.Provider, sources []string) ([]*configv1.Provider, error) {

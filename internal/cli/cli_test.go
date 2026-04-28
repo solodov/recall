@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"recall/internal/normalize"
 	"recall/internal/orchestrator"
 	configv1 "recall/proto/recall/config/v1"
 	searchv1 "recall/proto/recall/search/v1"
@@ -30,12 +31,16 @@ func TestRunLoadsConfigSearchesAndRendersResults(t *testing.T) {
 			receivedOptions = options
 			return &orchestrator.Result{Responses: []orchestrator.ProviderResponse{{
 				ProviderID: "example",
-				Response: &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{{
-					Id:      "example:1",
-					Kind:    "note",
-					Title:   "Example result",
-					Snippet: stringPtr("matched text"),
-				}}},
+				Hits: []normalize.Hit{{
+					ProviderID:   "example",
+					ProviderRank: 1,
+					Hit: &searchv1.SearchHit{
+						Id:      "example:1",
+						Kind:    "note",
+						Title:   "Example result",
+						Snippet: stringPtr("matched text"),
+					},
+				}},
 			}}}, nil
 		},
 	}

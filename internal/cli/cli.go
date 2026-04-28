@@ -98,8 +98,9 @@ func parseArgs(args []string, stderr io.Writer) (parsedArgs, error) {
 
 func renderResult(writer io.Writer, result *orchestrator.Result) {
 	for _, providerResponse := range result.Responses {
-		for _, hit := range providerResponse.Response.GetHits() {
-			fmt.Fprintf(writer, "[%s] %s", providerResponse.ProviderID, hit.GetTitle())
+		for _, normalizedHit := range providerResponse.Hits {
+			hit := normalizedHit.Hit
+			fmt.Fprintf(writer, "[%s] %s", normalizedHit.ProviderID, hit.GetTitle())
 			if kind := strings.TrimSpace(hit.GetKind()); kind != "" {
 				fmt.Fprintf(writer, " (%s)", kind)
 			}
@@ -108,8 +109,8 @@ func renderResult(writer io.Writer, result *orchestrator.Result) {
 				fmt.Fprintf(writer, "  %s\n", snippet)
 			}
 		}
-		for _, warning := range providerResponse.Response.GetWarnings() {
-			fmt.Fprintf(writer, "[%s] warning: %s\n", providerResponse.ProviderID, warning.GetMessage())
+		for _, normalizedWarning := range providerResponse.Warnings {
+			fmt.Fprintf(writer, "[%s] warning: %s\n", normalizedWarning.ProviderID, normalizedWarning.Warning.GetMessage())
 		}
 	}
 }

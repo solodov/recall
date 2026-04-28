@@ -4,7 +4,7 @@ title: Federated recall CLI with protobuf SearchProvider contract
 status: implementing
 created: 2026-04-28
 updated: 2026-04-28
-currentPhase: 6
+currentPhase: 7
 externalRef: 
 origin: 
 ---
@@ -49,7 +49,7 @@ Breaking provider API changes create a new package such as `recall.search.v2`. A
 - [x] 3. Negotiate stdio payload encoding through provider capabilities
 - [x] 4. Hide transports behind a typed search-provider client
 - [x] 5. Establish recall as the query-first orchestrator
-- [ ] 6. Implement a Go example stdio RPC provider and sample config
+- [x] 6. Implement a Go example stdio RPC provider and sample config
 - [ ] 7. Normalize and validate provider responses before ranking
 - [ ] 8. Centralize rendering around named URIs and groups
 - [ ] 9. Blend provider-local result order instead of provider scores
