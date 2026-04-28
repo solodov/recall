@@ -1,0 +1,91 @@
+syntax = "proto3";
+
+package recall.search.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// SearchProvider is the recall-compatible provider service. Transports bind
+// this unary RPC to stdio, gRPC, or future service transports.
+service SearchProvider {
+  // Search returns provider-local results ordered best-first for the query.
+  rpc Search(SearchRequest) returns (SearchResponse);
+}
+
+// SearchRequest is the query payload sent by recall. Recall-level routing and
+// presentation flags are handled by recall and are not serialized here.
+message SearchRequest {
+  // Provider-native query text.
+  string query = 1;
+
+  // Soft maximum number of hits the provider should return.
+  uint32 limit = 2;
+}
+
+// SearchResponse contains provider-local results and non-fatal diagnostics.
+message SearchResponse {
+  // Recall derives provider-local rank from array position.
+  repeated SearchHit hits = 1;
+
+  // Non-fatal provider diagnostics.
+  repeated Warning warnings = 2;
+}
+
+// SearchHit is one provider-local search result.
+message SearchHit {
+  // Provider-stable identifier, unique within this provider.
+  string id = 1;
+
+  // Coarse result type, such as org_entry, note, email, event, or command.
+  string kind = 2;
+
+  // Primary display label for the result.
+  string title = 3;
+
+  // Optional provider-generated context or matched text.
+  optional string snippet = 4;
+
+  // Optional provider-native score for diagnostics. Scores are not comparable
+  // across providers and are not the primary blending signal.
+  optional double score = 5;
+
+  // Named actions or locations. The first URI is the primary action.
+  repeated NamedUri uris = 6;
+
+  // Optional provider-preferred grouping identity.
+  SearchGroup group = 7;
+
+  // Optional source-domain time useful for scanning the result, such as email
+  // sent time, calendar start time, or shell command execution time.
+  google.protobuf.Timestamp occurred_at = 8;
+}
+
+// NamedUri is the only action abstraction in the search contract.
+message NamedUri {
+  // Stable action label, such as open, file, thread, event, web, or source.
+  string name = 1;
+
+  // URI to open or expose for the named action.
+  string uri = 2;
+}
+
+// SearchGroup describes source-native grouping without provider-specific
+// renderer code in recall.
+message SearchGroup {
+  // Stable grouping key within the provider.
+  string key = 1;
+
+  // Human-readable group label.
+  string title = 2;
+
+  // Optional named actions or locations for the group.
+  repeated NamedUri uris = 3;
+}
+
+// Warning describes non-fatal provider degradation.
+message Warning {
+  // Human-readable diagnostic message.
+  string message = 1;
+
+  // Optional stable warning code for diagnostics and tests.
+  optional string code = 2;
+}

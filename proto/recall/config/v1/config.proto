@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package recall.config.v1;
+
+// RecallConfig is the operator-owned provider registry loaded by recall.
+message RecallConfig {
+  // Providers available to recall. Disabled providers remain configured but are
+  // skipped during query fan-out.
+  repeated Provider providers = 1;
+}
+
+// Provider declares one searchable source and how recall can reach it. The
+// SearchProvider service, method, and payload encoding are protocol concerns,
+// not operator-owned config fields.
+message Provider {
+  // Operator-facing provider identifier used for routing, rendering, and
+  // diagnostics.
+  string id = 1;
+
+  // Whether recall should include this provider in normal query fan-out.
+  bool enabled = 2;
+
+  // Exactly one transport must be configured.
+  oneof transport {
+    StdioTransport stdio = 10;
+    GrpcTransport grpc = 11;
+  }
+
+  // Cross-provider ranking weight. A zero value means recall should apply its
+  // default provider weight.
+  double weight = 20;
+
+  // Provider call timeout in milliseconds. A zero value means recall should
+  // apply its default timeout.
+  uint32 timeout_ms = 21;
+
+  // Default per-provider result limit. A zero value means recall should apply
+  // its default limit.
+  uint32 default_limit = 22;
+}
+
+// StdioTransport starts a provider process for one unary RPC call over stdin
+// and stdout.
+message StdioTransport {
+  // Executable path or command name to start.
+  string command = 1;
+
+  // Static command arguments supplied after command.
+  repeated string args = 2;
+
+  // Additional environment variables supplied to the provider process. Recall
+  // reserves RECALL_RPC_* names for per-call RPC metadata.
+  map<string, string> env = 3;
+}
+
+// GrpcTransport connects to a provider that exposes the recall search service
+// over gRPC.
+message GrpcTransport {
+  // gRPC endpoint, for example dns:///mail-search.internal:443.
+  string endpoint = 1;
+}

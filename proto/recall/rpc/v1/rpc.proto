@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package recall.rpc.v1;
+
+// PayloadEncoding identifies the protobuf payload encoding used for a unary
+// stdio RPC call.
+enum PayloadEncoding {
+  PAYLOAD_ENCODING_UNSPECIFIED = 0;
+  PAYLOAD_ENCODING_PROTOBUF_BINARY = 1;
+  PAYLOAD_ENCODING_PROTOBUF_TEXTPROTO = 2;
+}
+
+// StdioRpcControl is the binary-bootstrap control service used by recall to
+// discover stdio provider capabilities before issuing search calls.
+service StdioRpcControl {
+  // GetCapabilities returns the payload encodings the provider can serve.
+  rpc GetCapabilities(StdioRpcCapabilitiesRequest)
+      returns (StdioRpcCapabilitiesResponse);
+}
+
+// StdioRpcCapabilitiesRequest carries no fields because capabilities are tied
+// to the provider binary and invocation environment.
+message StdioRpcCapabilitiesRequest {}
+
+// StdioRpcCapabilitiesResponse advertises the encodings a stdio RPC server can
+// decode and encode for method payloads.
+message StdioRpcCapabilitiesResponse {
+  // Encodings accepted for method request payloads and emitted for matching
+  // response payloads.
+  repeated PayloadEncoding supported_encodings = 1;
+
+  // Provider preference among supported_encodings. Recall may override this
+  // preference for diagnostics when a supported encoding is explicitly needed.
+  PayloadEncoding preferred_encoding = 2;
+}
