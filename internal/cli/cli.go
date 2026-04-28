@@ -11,6 +11,7 @@ import (
 
 	"recall/internal/config"
 	"recall/internal/orchestrator"
+	"recall/internal/render"
 	configv1 "recall/proto/recall/config/v1"
 )
 
@@ -64,8 +65,15 @@ func (app App) Run(ctx context.Context, args []string) error {
 		Limit:   parsed.limit,
 	})
 	if result != nil {
-		renderResult(stdout, result)
-		renderFailures(stderr, result.Failures)
+		var renderErr error
+		switch parsed.format {
+		case outputFormatJSON:
+			renderErr = render.WriteJSON(stdout, result)
+		case outputFormatHuman:
+			renderErr = render.WriteHuman(stdout, result, render.HumanOptions{Grouped: parsed.grouped})
+			renderFailures(stderr, result.Failures)
+		}
+		return errors.Join(renderErr, err)
 	}
 	return err
 }
@@ -74,7 +82,16 @@ type parsedArgs struct {
 	query   string
 	sources []string
 	limit   uint32
+	grouped bool
+	format  outputFormat
 }
+
+type outputFormat string
+
+const (
+	outputFormatHuman outputFormat = "human"
+	outputFormatJSON  outputFormat = "json"
+)
 
 func parseArgs(args []string, stderr io.Writer) (parsedArgs, error) {
 	flags := flag.NewFlagSet("recall", flag.ContinueOnError)
@@ -82,6 +99,8 @@ func parseArgs(args []string, stderr io.Writer) (parsedArgs, error) {
 	var sources stringListFlag
 	flags.Var(&sources, "source", "comma-separated provider IDs to query")
 	limit := flags.Uint("limit", 0, "override per-provider result limit")
+	grouped := flags.Bool("grouped", false, "group output by source and provider group")
+	format := flags.String("format", string(outputFormatHuman), "output format: human or json")
 	if err := flags.Parse(args); err != nil {
 		return parsedArgs{}, err
 	}
@@ -93,26 +112,13 @@ func parseArgs(args []string, stderr io.Writer) (parsedArgs, error) {
 	if *limit > uint(^uint32(0)) {
 		return parsedArgs{}, fmt.Errorf("--limit %d exceeds uint32 maximum", *limit)
 	}
-	return parsedArgs{query: query, sources: sources, limit: uint32(*limit)}, nil
-}
-
-func renderResult(writer io.Writer, result *orchestrator.Result) {
-	for _, providerResponse := range result.Responses {
-		for _, normalizedHit := range providerResponse.Hits {
-			hit := normalizedHit.Hit
-			fmt.Fprintf(writer, "[%s] %s", normalizedHit.ProviderID, hit.GetTitle())
-			if kind := strings.TrimSpace(hit.GetKind()); kind != "" {
-				fmt.Fprintf(writer, " (%s)", kind)
-			}
-			fmt.Fprintln(writer)
-			if snippet := strings.TrimSpace(hit.GetSnippet()); snippet != "" {
-				fmt.Fprintf(writer, "  %s\n", snippet)
-			}
-		}
-		for _, normalizedWarning := range providerResponse.Warnings {
-			fmt.Fprintf(writer, "[%s] warning: %s\n", normalizedWarning.ProviderID, normalizedWarning.Warning.GetMessage())
-		}
+	parsedFormat := outputFormat(*format)
+	switch parsedFormat {
+	case outputFormatHuman, outputFormatJSON:
+	default:
+		return parsedArgs{}, fmt.Errorf("unsupported --format %q; use human or json", *format)
 	}
+	return parsedArgs{query: query, sources: sources, limit: uint32(*limit), grouped: *grouped, format: parsedFormat}, nil
 }
 
 func renderFailures(writer io.Writer, failures []orchestrator.ProviderFailure) {
