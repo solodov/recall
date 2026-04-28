@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package recall.config.v1;
 
+option go_package = "recall/proto/recall/config/v1;configv1";
+
 // RecallConfig is the operator-owned provider registry loaded by recall.
 message RecallConfig {
   // Providers available to recall. Disabled providers remain configured but are
@@ -26,16 +28,13 @@ message Provider {
     GrpcTransport grpc = 11;
   }
 
-  // Cross-provider ranking weight. A zero value means recall should apply its
-  // default provider weight.
+  // Cross-provider ranking weight. Must be positive.
   double weight = 20;
 
-  // Provider call timeout in milliseconds. A zero value means recall should
-  // apply its default timeout.
+  // Provider call timeout in milliseconds. Must be positive.
   uint32 timeout_ms = 21;
 
-  // Default per-provider result limit. A zero value means recall should apply
-  // its default limit.
+  // Default per-provider result limit. Must be positive.
   uint32 default_limit = 22;
 }
 

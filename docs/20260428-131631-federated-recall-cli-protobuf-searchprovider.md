@@ -4,7 +4,7 @@ title: Federated recall CLI with protobuf SearchProvider contract
 status: implementing
 created: 2026-04-28
 updated: 2026-04-28
-currentPhase: 1
+currentPhase: 2
 externalRef: 
 origin: 
 ---
@@ -44,7 +44,7 @@ Breaking provider API changes create a new package such as `recall.search.v2`. A
 
 ## Phases
 
-- [ ] 1. Establish shared protobuf surfaces with search, config, and stdio RPC control boundaries
+- [x] 1. Establish shared protobuf surfaces with search, config, and stdio RPC control boundaries
 - [ ] 2. Keep the .txtpb registry focused on provider availability
 - [ ] 3. Negotiate stdio payload encoding through provider capabilities
 - [ ] 4. Hide transports behind a typed search-provider client
