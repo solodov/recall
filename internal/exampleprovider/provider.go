@@ -12,7 +12,6 @@ import (
 
 	"recall/internal/searchclient"
 	"recall/internal/stdiorpc"
-	rpcv1 "recall/proto/recall/rpc/v1"
 	searchv1 "recall/proto/recall/search/v1"
 
 	"google.golang.org/protobuf/proto"
@@ -31,31 +30,19 @@ func New() *Provider {
 }
 
 // Serve handles exactly one recall stdio RPC call for the example provider.
-func (provider *Provider) Serve(ctx context.Context, stdin io.Reader, stdout io.Writer, getenv func(string) string) error {
+func (provider *Provider) Serve(ctx context.Context, stdin io.Reader, stdout io.Writer, args []string) error {
 	return stdiorpc.ServeOne(ctx, stdiorpc.ServeOptions{
 		Stdin:    stdin,
 		Stdout:   stdout,
-		Getenv:   getenv,
+		Args:     args,
 		Handlers: provider.Handlers(),
 	})
 }
 
-// Handlers exposes the stdio RPC methods served by the example provider:
-// capability discovery and SearchProvider.Search.
+// Handlers exposes the SearchProvider.Search stdio RPC method served by the
+// example provider.
 func (provider *Provider) Handlers() map[stdiorpc.MethodKey]stdiorpc.UnaryHandler {
 	return map[stdiorpc.MethodKey]stdiorpc.UnaryHandler{
-		{Service: stdiorpc.ControlService, Method: stdiorpc.ControlGetCapabilities}: {
-			NewRequest: func() proto.Message { return &rpcv1.StdioRpcCapabilitiesRequest{} },
-			Handle: func(context.Context, proto.Message) (proto.Message, error) {
-				return &rpcv1.StdioRpcCapabilitiesResponse{
-					SupportedEncodings: []rpcv1.PayloadEncoding{
-						rpcv1.PayloadEncoding_PAYLOAD_ENCODING_PROTOBUF_BINARY,
-						rpcv1.PayloadEncoding_PAYLOAD_ENCODING_PROTOBUF_TEXTPROTO,
-					},
-					PreferredEncoding: rpcv1.PayloadEncoding_PAYLOAD_ENCODING_PROTOBUF_BINARY,
-				}, nil
-			},
-		},
 		{Service: searchclient.SearchService, Method: searchclient.SearchMethod}: {
 			NewRequest: func() proto.Message { return &searchv1.SearchRequest{} },
 			Handle: func(ctx context.Context, message proto.Message) (proto.Message, error) {
@@ -79,9 +66,6 @@ func (provider *Provider) Search(ctx context.Context, request *searchv1.SearchRe
 		return nil, fmt.Errorf("query must be non-empty")
 	}
 	limit := int(request.GetLimit())
-	if limit <= 0 {
-		return nil, fmt.Errorf("limit must be positive")
-	}
 
 	terms := strings.Fields(strings.ToLower(query))
 	hits := make([]*searchv1.SearchHit, 0, len(provider.documents))
@@ -93,7 +77,7 @@ func (provider *Provider) Search(ctx context.Context, request *searchv1.SearchRe
 			continue
 		}
 		hits = append(hits, document.hit())
-		if len(hits) >= limit {
+		if limit > 0 && len(hits) >= limit {
 			break
 		}
 	}
@@ -109,7 +93,7 @@ func (provider *Provider) Search(ctx context.Context, request *searchv1.SearchRe
 
 // ServeDefault handles one stdio RPC call using process streams and environment.
 func ServeDefault(ctx context.Context) error {
-	return New().Serve(ctx, os.Stdin, os.Stdout, os.Getenv)
+	return New().Serve(ctx, os.Stdin, os.Stdout, os.Args[1:])
 }
 
 type fixtureDocument struct {

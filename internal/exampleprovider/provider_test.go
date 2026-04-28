@@ -8,44 +8,14 @@ import (
 
 	"recall/internal/searchclient"
 	"recall/internal/stdiorpc"
-	rpcv1 "recall/proto/recall/rpc/v1"
 	searchv1 "recall/proto/recall/search/v1"
 
 	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/proto"
 )
 
-func TestServeAdvertisesBinaryAndTextprotoCapabilities(t *testing.T) {
-	stdout := serveOne(t,
-		map[string]string{
-			stdiorpc.EnvService:  stdiorpc.ControlService,
-			stdiorpc.EnvMethod:   stdiorpc.ControlGetCapabilities,
-			stdiorpc.EnvEncoding: stdiorpc.EncodingProtobufBinary,
-		},
-		&rpcv1.StdioRpcCapabilitiesRequest{},
-	)
-
-	response := &rpcv1.StdioRpcCapabilitiesResponse{}
-	if err := proto.Unmarshal(stdout, response); err != nil {
-		t.Fatalf("unmarshal capabilities response: %v", err)
-	}
-	if response.GetPreferredEncoding() != rpcv1.PayloadEncoding_PAYLOAD_ENCODING_PROTOBUF_BINARY {
-		t.Fatalf("preferred encoding = %s, want binary", response.GetPreferredEncoding())
-	}
-	if len(response.GetSupportedEncodings()) != 2 {
-		t.Fatalf("supported encoding count = %d, want 2", len(response.GetSupportedEncodings()))
-	}
-}
-
 func TestServeSearchBinaryExercisesContractFields(t *testing.T) {
-	stdout := serveOne(t,
-		map[string]string{
-			stdiorpc.EnvService:  searchclient.SearchService,
-			stdiorpc.EnvMethod:   searchclient.SearchMethod,
-			stdiorpc.EnvEncoding: stdiorpc.EncodingProtobufBinary,
-		},
-		&searchv1.SearchRequest{Query: "deploy", Limit: 5},
-	)
+	stdout := serveOne(t, stdiorpc.PayloadFormatBinary, &searchv1.SearchRequest{Query: "deploy", Limit: proto.Uint32(5)})
 
 	response := &searchv1.SearchResponse{}
 	if err := proto.Unmarshal(stdout, response); err != nil {
@@ -54,19 +24,15 @@ func TestServeSearchBinaryExercisesContractFields(t *testing.T) {
 	assertExampleSearchResponse(t, response)
 }
 
-func TestServeSearchTextprotoUsesRequestedEncoding(t *testing.T) {
-	requestBytes, err := prototext.Marshal(&searchv1.SearchRequest{Query: "alice meeting", Limit: 5})
+func TestServeSearchTextprotoAutoDetectsAndMirrorsInput(t *testing.T) {
+	requestBytes, err := prototext.Marshal(&searchv1.SearchRequest{Query: "alice meeting"})
 	if err != nil {
 		t.Fatalf("marshal textproto request: %v", err)
 	}
 
 	var stdout bytes.Buffer
 	provider := New()
-	err = provider.Serve(context.Background(), bytes.NewReader(requestBytes), &stdout, getenv(map[string]string{
-		stdiorpc.EnvService:  searchclient.SearchService,
-		stdiorpc.EnvMethod:   searchclient.SearchMethod,
-		stdiorpc.EnvEncoding: stdiorpc.EncodingProtobufTextproto,
-	}))
+	err = provider.Serve(context.Background(), bytes.NewReader(requestBytes), &stdout, []string{searchPath(t)})
 	if err != nil {
 		t.Fatalf("Serve returned error: %v", err)
 	}
@@ -81,30 +47,44 @@ func TestServeSearchTextprotoUsesRequestedEncoding(t *testing.T) {
 }
 
 func TestSearchRejectsInvalidRequest(t *testing.T) {
-	_, err := New().Search(context.Background(), &searchv1.SearchRequest{Query: "", Limit: 1})
+	_, err := New().Search(context.Background(), &searchv1.SearchRequest{Query: "", Limit: proto.Uint32(1)})
 	if err == nil || !strings.Contains(err.Error(), "query") {
 		t.Fatalf("empty query error = %v, want query validation", err)
 	}
+}
 
-	_, err = New().Search(context.Background(), &searchv1.SearchRequest{Query: "deploy", Limit: 0})
-	if err == nil || !strings.Contains(err.Error(), "limit") {
-		t.Fatalf("zero limit error = %v, want limit validation", err)
+func TestSearchWithoutLimitReturnsEveryMatch(t *testing.T) {
+	response, err := New().Search(context.Background(), &searchv1.SearchRequest{Query: "example"})
+	if err != nil {
+		t.Fatalf("Search returned error: %v", err)
+	}
+	if len(response.GetHits()) != 3 {
+		t.Fatalf("hit count = %d, want all fixture hits", len(response.GetHits()))
 	}
 }
 
-func serveOne(t *testing.T, env map[string]string, request proto.Message) []byte {
+func serveOne(t *testing.T, format stdiorpc.PayloadFormat, request proto.Message) []byte {
 	t.Helper()
-	requestBytes, err := proto.Marshal(request)
+	requestBytes, err := stdiorpc.MarshalPayload(format, request)
 	if err != nil {
 		t.Fatalf("marshal request: %v", err)
 	}
 
 	var stdout bytes.Buffer
 	provider := New()
-	if err := provider.Serve(context.Background(), bytes.NewReader(requestBytes), &stdout, getenv(env)); err != nil {
+	if err := provider.Serve(context.Background(), bytes.NewReader(requestBytes), &stdout, []string{searchPath(t)}); err != nil {
 		t.Fatalf("Serve returned error: %v", err)
 	}
 	return stdout.Bytes()
+}
+
+func searchPath(t *testing.T) string {
+	t.Helper()
+	path, err := (stdiorpc.MethodKey{Service: searchclient.SearchService, Method: searchclient.SearchMethod}).Path()
+	if err != nil {
+		t.Fatalf("Path returned error: %v", err)
+	}
+	return path
 }
 
 func assertExampleSearchResponse(t *testing.T, response *searchv1.SearchResponse) {
@@ -134,11 +114,5 @@ func assertExampleSearchResponse(t *testing.T, response *searchv1.SearchResponse
 	}
 	if len(response.GetWarnings()) != 1 || response.GetWarnings()[0].GetCode() != "example_fixture" {
 		t.Fatalf("warnings = %#v, want example_fixture warning", response.GetWarnings())
-	}
-}
-
-func getenv(env map[string]string) func(string) string {
-	return func(key string) string {
-		return env[key]
 	}
 }

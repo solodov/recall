@@ -29,8 +29,9 @@ type SearchRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Provider-native query text.
 	Query string `protobuf:"bytes,1,opt,name=query,proto3" json:"query,omitempty"`
-	// Soft maximum number of hits the provider should return.
-	Limit         uint32 `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	// Optional soft maximum number of hits the provider should return. When
+	// absent, the provider should return every reasonable match.
+	Limit         *uint32 `protobuf:"varint,2,opt,name=limit,proto3,oneof" json:"limit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -73,8 +74,8 @@ func (x *SearchRequest) GetQuery() string {
 }
 
 func (x *SearchRequest) GetLimit() uint32 {
-	if x != nil {
-		return x.Limit
+	if x != nil && x.Limit != nil {
+		return *x.Limit
 	}
 	return 0
 }
@@ -424,10 +425,11 @@ var File_proto_recall_search_v1_search_proto protoreflect.FileDescriptor
 
 const file_proto_recall_search_v1_search_proto_rawDesc = "" +
 	"\n" +
-	"#proto/recall/search/v1/search.proto\x12\x10recall.search.v1\x1a\x1fgoogle/protobuf/timestamp.proto\";\n" +
+	"#proto/recall/search/v1/search.proto\x12\x10recall.search.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"J\n" +
 	"\rSearchRequest\x12\x14\n" +
-	"\x05query\x18\x01 \x01(\tR\x05query\x12\x14\n" +
-	"\x05limit\x18\x02 \x01(\rR\x05limit\"x\n" +
+	"\x05query\x18\x01 \x01(\tR\x05query\x12\x19\n" +
+	"\x05limit\x18\x02 \x01(\rH\x00R\x05limit\x88\x01\x01B\b\n" +
+	"\x06_limit\"x\n" +
 	"\x0eSearchResponse\x12/\n" +
 	"\x04hits\x18\x01 \x03(\v2\x1b.recall.search.v1.SearchHitR\x04hits\x125\n" +
 	"\bwarnings\x18\x02 \x03(\v2\x19.recall.search.v1.WarningR\bwarnings\"\xb7\x02\n" +
@@ -501,6 +503,7 @@ func file_proto_recall_search_v1_search_proto_init() {
 	if File_proto_recall_search_v1_search_proto != nil {
 		return
 	}
+	file_proto_recall_search_v1_search_proto_msgTypes[0].OneofWrappers = []any{}
 	file_proto_recall_search_v1_search_proto_msgTypes[2].OneofWrappers = []any{}
 	file_proto_recall_search_v1_search_proto_msgTypes[5].OneofWrappers = []any{}
 	type x struct{}

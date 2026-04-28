@@ -70,8 +70,8 @@ func (x *RecallConfig) GetProviders() []*Provider {
 }
 
 // Provider declares one searchable source and how recall can reach it. The
-// SearchProvider service, method, and payload encoding are protocol concerns,
-// not operator-owned config fields.
+// SearchProvider service and method path are protocol concerns, not
+// operator-owned config fields.
 type Provider struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Operator-facing provider identifier used for routing, rendering, and
@@ -210,8 +210,7 @@ type StdioTransport struct {
 	Command string `protobuf:"bytes,1,opt,name=command,proto3" json:"command,omitempty"`
 	// Static command arguments supplied after command.
 	Args []string `protobuf:"bytes,2,rep,name=args,proto3" json:"args,omitempty"`
-	// Additional environment variables supplied to the provider process. Recall
-	// reserves RECALL_RPC_* names for per-call RPC metadata.
+	// Additional environment variables supplied to the provider process.
 	Env           map[string]string `protobuf:"bytes,3,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

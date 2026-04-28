@@ -6,8 +6,8 @@ protoc := require("protoc")
 protoc_gen_go := require("protoc-gen-go")
 
 generate-proto:
-    "{{protoc}}" --go_out=. --go_opt=paths=source_relative proto/recall/config/v1/config.proto proto/recall/rpc/v1/rpc.proto proto/recall/search/v1/search.proto
-    "{{goimports}}" -w proto/recall/config/v1/config.pb.go proto/recall/rpc/v1/rpc.pb.go proto/recall/search/v1/search.pb.go
+    "{{protoc}}" --go_out=. --go_opt=paths=source_relative proto/recall/config/v1/config.proto proto/recall/search/v1/search.proto
+    "{{goimports}}" -w proto/recall/config/v1/config.pb.go proto/recall/search/v1/search.pb.go
 
 build: generate-proto
     mkdir -p dist

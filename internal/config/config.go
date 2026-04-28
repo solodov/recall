@@ -19,8 +19,6 @@ import (
 const (
 	configDirName  = "recall"
 	configFileName = "config.txtpb"
-
-	reservedRPCEnvPrefix = "RECALL_RPC_"
 )
 
 var (
@@ -142,9 +140,6 @@ func validateStdioTransport(location string, transport *configv1.StdioTransport)
 		if key == "" {
 			problems = append(problems, fmt.Errorf("%s.stdio.env contains an empty key", location))
 			continue
-		}
-		if strings.HasPrefix(key, reservedRPCEnvPrefix) {
-			problems = append(problems, fmt.Errorf("%s.stdio.env[%q] conflicts with recall RPC call metadata", location, key))
 		}
 		if !envNamePattern.MatchString(key) {
 			problems = append(problems, fmt.Errorf("%s.stdio.env[%q] is not a valid environment variable name", location, key))

@@ -10,23 +10,21 @@ import (
 
 	"recall/internal/stdiorpc"
 	configv1 "recall/proto/recall/config/v1"
-	rpcv1 "recall/proto/recall/rpc/v1"
 	searchv1 "recall/proto/recall/search/v1"
 
 	"google.golang.org/grpc"
-	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/proto"
 )
 
-func TestStdioClientSearchUsesTypedSearchMetadata(t *testing.T) {
+func TestStdioClientSearchUsesTypedSearchPath(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "provider-log")
 	transport := helperTransport(logPath)
-	client, err := NewStdioClient("example", transport, time.Second, stdiorpc.NewCapabilityClient(), stdiorpc.PreferBinary)
+	client, err := NewStdioClient("example", transport, time.Second)
 	if err != nil {
 		t.Fatalf("NewStdioClient returned error: %v", err)
 	}
 
-	response, err := client.Search(context.Background(), &searchv1.SearchRequest{Query: "deploy notes", Limit: 3})
+	response, err := client.Search(context.Background(), &searchv1.SearchRequest{Query: "deploy notes", Limit: proto.Uint32(3)})
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
@@ -41,8 +39,8 @@ func TestStdioClientSearchUsesTypedSearchMetadata(t *testing.T) {
 
 	log := readHelperLog(t, logPath)
 	for _, want := range []string{
-		"recall.rpc.v1.StdioRpcControl/GetCapabilities/protobuf_binary",
-		"recall.search.v1.SearchProvider/Search/protobuf_binary",
+		"path=/recall.search.v1.SearchProvider/Search",
+		"format=protobuf_binary",
 	} {
 		if !strings.Contains(log, want) {
 			t.Fatalf("helper log %q does not contain %q", log, want)
@@ -50,37 +48,14 @@ func TestStdioClientSearchUsesTypedSearchMetadata(t *testing.T) {
 	}
 }
 
-func TestStdioClientCanSelectTextprotoForDiagnostics(t *testing.T) {
-	logPath := filepath.Join(t.TempDir(), "provider-log")
-	transport := helperTransport(logPath)
-	client, err := NewStdioClient("example", transport, time.Second, stdiorpc.NewCapabilityClient(), stdiorpc.PreferTextproto)
-	if err != nil {
-		t.Fatalf("NewStdioClient returned error: %v", err)
-	}
-
-	response, err := client.Search(context.Background(), &searchv1.SearchRequest{Query: "alice", Limit: 1})
-	if err != nil {
-		t.Fatalf("Search returned error: %v", err)
-	}
-	if len(response.GetHits()) != 1 {
-		t.Fatalf("hit count = %d, want 1", len(response.GetHits()))
-	}
-
-	log := readHelperLog(t, logPath)
-	if !strings.Contains(log, "recall.search.v1.SearchProvider/Search/protobuf_textproto") {
-		t.Fatalf("helper log %q does not show textproto search call", log)
-	}
-}
-
 func TestNewProviderClientCreatesTransportSpecificClients(t *testing.T) {
-	capabilityClient := stdiorpc.NewCapabilityClient()
 	stdioProvider := &configv1.Provider{
 		Id:        "example",
 		TimeoutMs: 1500,
 		Transport: &configv1.Provider_Stdio{Stdio: &configv1.StdioTransport{Command: os.Args[0]}},
 	}
 
-	stdioClient, err := NewProviderClient(stdioProvider, ProviderClientOptions{CapabilityClient: capabilityClient})
+	stdioClient, err := NewProviderClient(stdioProvider, ProviderClientOptions{})
 	if err != nil {
 		t.Fatalf("NewProviderClient(stdio) returned error: %v", err)
 	}
@@ -106,7 +81,7 @@ func TestGRPCClientInvokesSearchFullMethodWithDeadline(t *testing.T) {
 	invoker := &recordingInvoker{}
 	client := newGRPCClientWithInvoker("dns:///provider", 50*time.Millisecond, invoker)
 
-	response, err := client.Search(context.Background(), &searchv1.SearchRequest{Query: "alice", Limit: 2})
+	response, err := client.Search(context.Background(), &searchv1.SearchRequest{Query: "alice", Limit: proto.Uint32(2)})
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
@@ -172,99 +147,39 @@ func readHelperLog(t *testing.T, path string) string {
 
 func serveSearchProviderHelper(t *testing.T) {
 	t.Helper()
-	service := os.Getenv(stdiorpc.EnvService)
-	method := os.Getenv(stdiorpc.EnvMethod)
-	encoding := os.Getenv(stdiorpc.EnvEncoding)
-	if logPath := os.Getenv("RECALL_SEARCHCLIENT_HELPER_LOG"); logPath != "" {
-		file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-		if err != nil {
-			t.Fatalf("open helper log: %v", err)
-		}
-		if _, err := file.WriteString(service + "/" + method + "/" + encoding + "\n"); err != nil {
-			_ = file.Close()
-			t.Fatalf("write helper log: %v", err)
-		}
-		if err := file.Close(); err != nil {
-			t.Fatalf("close helper log: %v", err)
-		}
-	}
-
+	rpcPath := os.Args[len(os.Args)-1]
 	stdin, err := os.ReadFile("/dev/stdin")
 	if err != nil {
 		t.Fatalf("read stdin: %v", err)
 	}
-	switch service + "/" + method {
-	case stdiorpc.ControlService + "/" + stdiorpc.ControlGetCapabilities:
-		if encoding != stdiorpc.EncodingProtobufBinary {
-			t.Fatalf("capability encoding = %q, want binary", encoding)
-		}
-		request := &rpcv1.StdioRpcCapabilitiesRequest{}
-		if err := proto.Unmarshal(stdin, request); err != nil {
-			t.Fatalf("unmarshal capabilities request: %v", err)
-		}
-		writeBinaryHelperResponse(t, &rpcv1.StdioRpcCapabilitiesResponse{
-			SupportedEncodings: []rpcv1.PayloadEncoding{
-				rpcv1.PayloadEncoding_PAYLOAD_ENCODING_PROTOBUF_BINARY,
-				rpcv1.PayloadEncoding_PAYLOAD_ENCODING_PROTOBUF_TEXTPROTO,
-			},
-			PreferredEncoding: rpcv1.PayloadEncoding_PAYLOAD_ENCODING_PROTOBUF_BINARY,
-		})
-	case SearchService + "/" + SearchMethod:
-		request := &searchv1.SearchRequest{}
-		switch encoding {
-		case stdiorpc.EncodingProtobufBinary:
-			if err := proto.Unmarshal(stdin, request); err != nil {
-				t.Fatalf("unmarshal binary search request: %v", err)
-			}
-		case stdiorpc.EncodingProtobufTextproto:
-			if err := prototext.Unmarshal(stdin, request); err != nil {
-				t.Fatalf("unmarshal textproto search request: %v", err)
-			}
-		default:
-			t.Fatalf("search encoding = %q", encoding)
-		}
-		response := &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{{
-			Id:      "example:" + request.GetQuery(),
-			Kind:    "note",
-			Title:   "Result for " + request.GetQuery(),
-			Snippet: proto.String("limit observed"),
-		}}}
-		writeEncodedHelperResponse(t, encoding, response)
-	default:
-		t.Fatalf("unexpected RPC %s/%s", service, method)
-	}
-	os.Exit(0)
-}
-
-func writeBinaryHelperResponse(t *testing.T, message proto.Message) {
-	t.Helper()
-	data, err := proto.Marshal(message)
+	request := &searchv1.SearchRequest{}
+	format, err := stdiorpc.UnmarshalPayloadAuto(stdin, request)
 	if err != nil {
-		t.Fatalf("marshal binary response: %v", err)
+		t.Fatalf("unmarshal search request: %v", err)
 	}
-	if _, err := os.Stdout.Write(data); err != nil {
-		t.Fatalf("write binary response: %v", err)
+	if logPath := os.Getenv("RECALL_SEARCHCLIENT_HELPER_LOG"); logPath != "" {
+		log := strings.Join([]string{
+			"path=" + rpcPath,
+			"format=" + string(format),
+			"query=" + request.GetQuery(),
+		}, "\n") + "\n"
+		if err := os.WriteFile(logPath, []byte(log), 0o600); err != nil {
+			t.Fatalf("write helper log: %v", err)
+		}
 	}
-}
 
-func writeEncodedHelperResponse(t *testing.T, encoding string, message proto.Message) {
-	t.Helper()
-	var (
-		data []byte
-		err  error
-	)
-	switch encoding {
-	case stdiorpc.EncodingProtobufBinary:
-		data, err = proto.Marshal(message)
-	case stdiorpc.EncodingProtobufTextproto:
-		data, err = prototext.Marshal(message)
-	default:
-		t.Fatalf("unsupported helper response encoding %q", encoding)
-	}
+	response := &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{{
+		Id:      "example:" + request.GetQuery(),
+		Kind:    "note",
+		Title:   "Result for " + request.GetQuery(),
+		Snippet: proto.String("limit observed"),
+	}}}
+	responseBytes, err := stdiorpc.MarshalPayload(format, response)
 	if err != nil {
 		t.Fatalf("marshal response: %v", err)
 	}
-	if _, err := os.Stdout.Write(data); err != nil {
+	if _, err := os.Stdout.Write(responseBytes); err != nil {
 		t.Fatalf("write response: %v", err)
 	}
+	os.Exit(0)
 }

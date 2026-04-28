@@ -8,8 +8,8 @@ validating responses, blending provider-local ranks, and rendering results.
 
 The operator registry lives at `$XDG_CONFIG_HOME/recall/config.txtpb`, falling
 back to `$HOME/.config/recall/config.txtpb`. Registry entries declare provider
-availability and transport only; they do not name a search method, payload
-encoding, filters, or indexing behavior.
+availability and transport only; they do not name a search method, filters, or
+indexing behavior.
 
 ## Provider shape
 
@@ -22,7 +22,7 @@ service SearchProvider {
 
 message SearchRequest {
   string query = 1;
-  uint32 limit = 2;
+  optional uint32 limit = 2;
 }
 ```
 
@@ -30,7 +30,7 @@ The raw query is intentionally provider-owned. Bash history, calendar, Gmail,
 local notes, and other future providers can each map the same query text to the
 search semantics that make sense for that source. Recall-level flags such as
 `--source`, `--kind`, and `--grouped` remain orchestration or presentation
-controls and are not added to `SearchRequest`.
+controls and are not added to `SearchRequest`. When `limit` is absent, providers should return every reasonable match.
 
 Provider responses should return best-first hits with stable IDs, kinds, titles,
 named URIs, optional groups, optional source-domain timestamps, optional native
@@ -39,14 +39,39 @@ ranking uses provider-local result order and configured provider weight.
 
 ## Stdio providers
 
-One-shot stdio providers are RPC servers for a single call. `recall` supplies
-call metadata in reserved `RECALL_RPC_*` environment variables, writes the
-encoded request payload to stdin, reads the encoded response payload from stdout,
-and treats stderr as diagnostics.
+One-shot stdio providers are RPC servers for a single call. `recall` starts the
+configured command and args, appends the RPC path as the final argument, writes
+the request payload to stdin, reads the response payload from stdout, and treats
+stderr as diagnostics.
 
-Stdio providers first serve `recall.rpc.v1.StdioRpcControl.GetCapabilities` with
-binary protobuf so recall can discover supported payload encodings. Search calls
-then use the selected encoding for both request and response payloads.
+For search, recall invokes:
+
+```bash
+provider [provider args] /recall.search.v1.SearchProvider/Search
+```
+
+Providers should parse the final path argument as:
+
+```text
+/<protobuf service>/<method>
+```
+
+The stdin and stdout bytes remain only the selected method's request and response
+payloads. Providers should auto-detect protobuf binary vs textproto input and
+mirror the same format for the response. This keeps `recall` efficient with
+binary protobuf while letting operators pipe textproto directly to a provider:
+
+```bash
+printf 'query: "deploy"\n' |
+  recall-example-provider /recall.search.v1.SearchProvider/Search
+```
+
+Add `limit` only when you want to cap provider-local results:
+
+```bash
+printf 'query: "deploy"\nlimit: 10\n' |
+  recall-example-provider /recall.search.v1.SearchProvider/Search
+```
 
 ## Future sources
 

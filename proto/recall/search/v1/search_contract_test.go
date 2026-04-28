@@ -12,5 +12,7 @@ func TestSearchRequestV1KeepsOnlyQueryAndLimit(t *testing.T) {
 	}
 	if field := fields.ByNumber(2); field == nil || string(field.Name()) != "limit" {
 		t.Fatalf("field 2 = %v, want limit", field)
+	} else if !field.HasPresence() {
+		t.Fatal("limit should be optional so direct provider calls can omit it")
 	}
 }

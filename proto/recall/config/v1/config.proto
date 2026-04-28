@@ -12,8 +12,8 @@ message RecallConfig {
 }
 
 // Provider declares one searchable source and how recall can reach it. The
-// SearchProvider service, method, and payload encoding are protocol concerns,
-// not operator-owned config fields.
+// SearchProvider service and method path are protocol concerns, not
+// operator-owned config fields.
 message Provider {
   // Operator-facing provider identifier used for routing, rendering, and
   // diagnostics.
@@ -47,8 +47,7 @@ message StdioTransport {
   // Static command arguments supplied after command.
   repeated string args = 2;
 
-  // Additional environment variables supplied to the provider process. Recall
-  // reserves RECALL_RPC_* names for per-call RPC metadata.
+  // Additional environment variables supplied to the provider process.
   map<string, string> env = 3;
 }
 

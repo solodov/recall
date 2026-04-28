@@ -12,9 +12,10 @@ import (
 	"recall/internal/rank"
 	"recall/internal/runtime"
 	"recall/internal/searchclient"
-	"recall/internal/stdiorpc"
 	configv1 "recall/proto/recall/config/v1"
 	searchv1 "recall/proto/recall/search/v1"
+
+	"google.golang.org/protobuf/proto"
 )
 
 // ClientFactory creates a typed search client for a provider selected from the
@@ -125,14 +126,10 @@ func Search(run runtime.Context, cfg *configv1.RecallConfig, query string, optio
 	return result, nil
 }
 
-// NewDefaultClientFactory creates real transport-backed clients while sharing a
-// stdio capability cache across all providers in one recall process.
+// NewDefaultClientFactory creates real transport-backed clients.
 func NewDefaultClientFactory() ClientFactory {
-	capabilityClient := stdiorpc.NewCapabilityClient()
 	return func(provider *configv1.Provider) (searchclient.Client, error) {
-		return searchclient.NewProviderClient(provider, searchclient.ProviderClientOptions{
-			CapabilityClient: capabilityClient,
-		})
+		return searchclient.NewProviderClient(provider, searchclient.ProviderClientOptions{})
 	}
 }
 
@@ -156,10 +153,14 @@ func searchOneProvider(run runtime.Context, index int, provider *configv1.Provid
 	if limitOverride != 0 {
 		limit = limitOverride
 	}
+	request := &searchv1.SearchRequest{Query: query}
+	if limit > 0 {
+		request.Limit = proto.Uint32(limit)
+	}
 	var response *searchv1.SearchResponse
 	if err := span.Measure("provider_call", func() error {
 		var err error
-		response, err = client.Search(run.Std(), &searchv1.SearchRequest{Query: query, Limit: limit})
+		response, err = client.Search(run.Std(), request)
 		return err
 	}, "limit", limit); err != nil {
 		span.RecordError(err)

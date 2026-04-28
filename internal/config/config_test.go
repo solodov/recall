@@ -127,7 +127,7 @@ func TestValidateRejectsInvalidProviderConfig(t *testing.T) {
 				Transport: &configv1.Provider_Stdio{Stdio: &configv1.StdioTransport{
 					Command: "",
 					Env: map[string]string{
-						"RECALL_RPC_ENCODING": "protobuf_binary",
+						"bad-env": "value",
 					},
 				}},
 			},
@@ -145,7 +145,7 @@ func TestValidateRejectsInvalidProviderConfig(t *testing.T) {
 		"providers[0].timeout_ms",
 		"providers[0].default_limit",
 		"providers[0].stdio.command",
-		"RECALL_RPC_ENCODING",
+		"bad-env",
 	} {
 		if !strings.Contains(message, want) {
 			t.Fatalf("Validate error %q does not contain %q", message, want)

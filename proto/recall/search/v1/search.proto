@@ -19,8 +19,9 @@ message SearchRequest {
   // Provider-native query text.
   string query = 1;
 
-  // Soft maximum number of hits the provider should return.
-  uint32 limit = 2;
+  // Optional soft maximum number of hits the provider should return. When
+  // absent, the provider should return every reasonable match.
+  optional uint32 limit = 2;
 }
 
 // SearchResponse contains provider-local results and non-fatal diagnostics.

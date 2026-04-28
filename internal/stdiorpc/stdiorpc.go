@@ -1,4 +1,4 @@
-// Package stdiorpc implements recall's one-shot stdio RPC control path.
+// Package stdiorpc implements recall's one-shot path-based stdio RPC transport.
 package stdiorpc
 
 import (
@@ -10,233 +10,76 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
-	"sync"
 	"time"
+	"unicode/utf8"
 
 	configv1 "recall/proto/recall/config/v1"
-	rpcv1 "recall/proto/recall/rpc/v1"
 
 	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/proto"
 )
 
-const (
-	EnvService  = "RECALL_RPC_SERVICE"
-	EnvMethod   = "RECALL_RPC_METHOD"
-	EnvEncoding = "RECALL_RPC_ENCODING"
-
-	EncodingProtobufBinary    = "protobuf_binary"
-	EncodingProtobufTextproto = "protobuf_textproto"
-
-	ControlService         = "recall.rpc.v1.StdioRpcControl"
-	ControlGetCapabilities = "GetCapabilities"
-)
-
-// EncodingPreference tells recall which mutually supported payload encoding to
-// prefer when a provider advertises more than one option.
-type EncodingPreference int
+// PayloadFormat identifies the protobuf encoding used for stdin/stdout bytes.
+type PayloadFormat string
 
 const (
-	// PreferBinary selects protobuf binary for normal searches when available.
-	PreferBinary EncodingPreference = iota
+	// PayloadFormatBinary is protobuf's compact binary wire format.
+	PayloadFormatBinary PayloadFormat = "protobuf_binary"
 
-	// PreferTextproto selects protobuf text format for diagnostics when available.
-	PreferTextproto
+	// PayloadFormatTextproto is protobuf text format for inspectable CLI use.
+	PayloadFormatTextproto PayloadFormat = "protobuf_textproto"
 )
 
-// CallMetadata is delivered to stdio RPC servers out-of-band for each unary
-// call so stdin/stdout can contain only method request and response payloads.
-type CallMetadata struct {
-	Service  string
-	Method   string
-	Encoding rpcv1.PayloadEncoding
+// Path returns the canonical stdio RPC path for this method.
+func (key MethodKey) Path() (string, error) {
+	service := strings.TrimSpace(key.Service)
+	method := strings.TrimSpace(key.Method)
+	if service == "" {
+		return "", errors.New("stdio RPC service is required")
+	}
+	if method == "" {
+		return "", errors.New("stdio RPC method is required")
+	}
+	if strings.Contains(service, "/") || strings.Contains(method, "/") {
+		return "", fmt.Errorf("stdio RPC path components must not contain '/': %q/%q", service, method)
+	}
+	return "/" + service + "/" + method, nil
 }
 
-// Env returns the reserved environment variables that identify one stdio RPC
-// call and its payload encoding.
-func (metadata CallMetadata) Env() ([]string, error) {
-	encoding, err := EncodingEnvValue(metadata.Encoding)
-	if err != nil {
-		return nil, err
+// ParsePath parses a canonical stdio RPC path such as
+// /recall.search.v1.SearchProvider/Search.
+func ParsePath(path string) (MethodKey, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return MethodKey{}, errors.New("stdio RPC path is required")
 	}
-	if strings.TrimSpace(metadata.Service) == "" {
-		return nil, errors.New("stdio RPC metadata service is required")
+	if !strings.HasPrefix(path, "/") {
+		return MethodKey{}, fmt.Errorf("stdio RPC path %q must start with '/'", path)
 	}
-	if strings.TrimSpace(metadata.Method) == "" {
-		return nil, errors.New("stdio RPC metadata method is required")
+	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+		return MethodKey{}, fmt.Errorf("stdio RPC path %q must have form /<service>/<method>", path)
 	}
-	return []string{
-		EnvService + "=" + metadata.Service,
-		EnvMethod + "=" + metadata.Method,
-		EnvEncoding + "=" + encoding,
-	}, nil
-}
-
-// EncodingEnvValue maps the protobuf control enum to the stable metadata value
-// used for stdio RPC calls.
-func EncodingEnvValue(encoding rpcv1.PayloadEncoding) (string, error) {
-	switch encoding {
-	case rpcv1.PayloadEncoding_PAYLOAD_ENCODING_PROTOBUF_BINARY:
-		return EncodingProtobufBinary, nil
-	case rpcv1.PayloadEncoding_PAYLOAD_ENCODING_PROTOBUF_TEXTPROTO:
-		return EncodingProtobufTextproto, nil
-	default:
-		return "", fmt.Errorf("unsupported stdio RPC payload encoding %s", encoding.String())
-	}
-}
-
-// ParseEncodingEnvValue maps a stdio RPC metadata value back to the protobuf
-// control enum used by capability negotiation.
-func ParseEncodingEnvValue(value string) (rpcv1.PayloadEncoding, error) {
-	switch value {
-	case EncodingProtobufBinary:
-		return rpcv1.PayloadEncoding_PAYLOAD_ENCODING_PROTOBUF_BINARY, nil
-	case EncodingProtobufTextproto:
-		return rpcv1.PayloadEncoding_PAYLOAD_ENCODING_PROTOBUF_TEXTPROTO, nil
-	default:
-		return rpcv1.PayloadEncoding_PAYLOAD_ENCODING_UNSPECIFIED, fmt.Errorf("unsupported stdio RPC payload encoding %q", value)
-	}
-}
-
-// CapabilityClient discovers and caches stdio provider capabilities for the
-// lifetime of a recall process.
-type CapabilityClient struct {
-	mu    sync.Mutex
-	cache map[string]*rpcv1.StdioRpcCapabilitiesResponse
-}
-
-// NewCapabilityClient creates an empty per-process capability cache.
-func NewCapabilityClient() *CapabilityClient {
-	return &CapabilityClient{cache: make(map[string]*rpcv1.StdioRpcCapabilitiesResponse)}
-}
-
-// Get returns cached capabilities for providerID or discovers them with the
-// mandatory binary protobuf bootstrap control call.
-func (client *CapabilityClient) Get(ctx context.Context, providerID string, transport *configv1.StdioTransport, timeout time.Duration) (*rpcv1.StdioRpcCapabilitiesResponse, error) {
-	if strings.TrimSpace(providerID) == "" {
-		return nil, errors.New("provider id is required for stdio capability cache")
-	}
-
-	client.mu.Lock()
-	if cached := client.cache[providerID]; cached != nil {
-		client.mu.Unlock()
-		return cloneCapabilities(cached), nil
-	}
-	client.mu.Unlock()
-
-	capabilities, err := DiscoverCapabilities(ctx, providerID, transport, timeout)
-	if err != nil {
-		return nil, err
-	}
-
-	client.mu.Lock()
-	defer client.mu.Unlock()
-	if cached := client.cache[providerID]; cached != nil {
-		return cloneCapabilities(cached), nil
-	}
-	client.cache[providerID] = cloneCapabilities(capabilities)
-	return cloneCapabilities(capabilities), nil
-}
-
-// DiscoverCapabilities asks a one-shot stdio RPC server which method payload
-// encodings it supports.
-func DiscoverCapabilities(ctx context.Context, providerID string, transport *configv1.StdioTransport, timeout time.Duration) (*rpcv1.StdioRpcCapabilitiesResponse, error) {
-	if transport == nil {
-		return nil, fmt.Errorf("discover capabilities for provider %q: stdio transport is nil", providerID)
-	}
-	if strings.TrimSpace(transport.GetCommand()) == "" {
-		return nil, fmt.Errorf("discover capabilities for provider %q: stdio command is required", providerID)
-	}
-
-	request := &rpcv1.StdioRpcCapabilitiesRequest{}
-	response := &rpcv1.StdioRpcCapabilitiesResponse{}
-	metadata := CallMetadata{
-		Service:  ControlService,
-		Method:   ControlGetCapabilities,
-		Encoding: rpcv1.PayloadEncoding_PAYLOAD_ENCODING_PROTOBUF_BINARY,
-	}
-	if err := CallUnary(ctx, transport, timeout, metadata, request, response); err != nil {
-		return nil, fmt.Errorf("discover capabilities for provider %q: %w", providerID, err)
-	}
-	if err := ValidateCapabilities(response); err != nil {
-		return nil, fmt.Errorf("discover capabilities for provider %q: %w", providerID, err)
-	}
-	return cloneCapabilities(response), nil
-}
-
-// SelectPayloadEncoding chooses the recall-side encoding for a provider based
-// on advertised capabilities and the requested preference.
-func SelectPayloadEncoding(capabilities *rpcv1.StdioRpcCapabilitiesResponse, preference EncodingPreference) (rpcv1.PayloadEncoding, error) {
-	if capabilities == nil {
-		return rpcv1.PayloadEncoding_PAYLOAD_ENCODING_UNSPECIFIED, errors.New("stdio capabilities are nil")
-	}
-	if err := ValidateCapabilities(capabilities); err != nil {
-		return rpcv1.PayloadEncoding_PAYLOAD_ENCODING_UNSPECIFIED, err
-	}
-
-	supported := supportedEncodingSet(capabilities.GetSupportedEncodings())
-	preferredOrder := []rpcv1.PayloadEncoding{
-		rpcv1.PayloadEncoding_PAYLOAD_ENCODING_PROTOBUF_BINARY,
-		capabilities.GetPreferredEncoding(),
-		rpcv1.PayloadEncoding_PAYLOAD_ENCODING_PROTOBUF_TEXTPROTO,
-	}
-	if preference == PreferTextproto {
-		preferredOrder = []rpcv1.PayloadEncoding{
-			rpcv1.PayloadEncoding_PAYLOAD_ENCODING_PROTOBUF_TEXTPROTO,
-			rpcv1.PayloadEncoding_PAYLOAD_ENCODING_PROTOBUF_BINARY,
-			capabilities.GetPreferredEncoding(),
-		}
-	}
-
-	for _, candidate := range preferredOrder {
-		if isKnownPayloadEncoding(candidate) && supported[candidate] {
-			return candidate, nil
-		}
-	}
-	return rpcv1.PayloadEncoding_PAYLOAD_ENCODING_UNSPECIFIED, errors.New("provider did not advertise a mutually supported payload encoding")
-}
-
-// ValidateCapabilities enforces capability semantics before recall selects an
-// encoding or caches the provider response.
-func ValidateCapabilities(capabilities *rpcv1.StdioRpcCapabilitiesResponse) error {
-	if capabilities == nil {
-		return errors.New("stdio capabilities are nil")
-	}
-
-	var problems []error
-	supported := supportedEncodingSet(capabilities.GetSupportedEncodings())
-	for index, encoding := range capabilities.GetSupportedEncodings() {
-		if !isKnownPayloadEncoding(encoding) {
-			problems = append(problems, fmt.Errorf("supported_encodings[%d] has unsupported value %s", index, encoding.String()))
-		}
-	}
-	if len(supported) == 0 {
-		problems = append(problems, errors.New("supported_encodings must contain at least one supported payload encoding"))
-	}
-	preferred := capabilities.GetPreferredEncoding()
-	if preferred != rpcv1.PayloadEncoding_PAYLOAD_ENCODING_UNSPECIFIED && !supported[preferred] {
-		problems = append(problems, fmt.Errorf("preferred_encoding %s is not listed in supported_encodings", preferred.String()))
-	}
-	return errors.Join(problems...)
+	return MethodKey{Service: parts[0], Method: parts[1]}, nil
 }
 
 // CallUnary executes one unary protobuf RPC over a one-shot stdio provider
-// process. Metadata identifies the service, method, and payload encoding while
-// stdin/stdout carry only the encoded request and response messages.
-func CallUnary(ctx context.Context, transport *configv1.StdioTransport, timeout time.Duration, metadata CallMetadata, request proto.Message, response proto.Message) error {
+// process. The RPC path is appended after the configured provider args; stdin
+// carries a binary protobuf request and stdout carries the provider response.
+func CallUnary(ctx context.Context, transport *configv1.StdioTransport, timeout time.Duration, method MethodKey, request proto.Message, response proto.Message) error {
 	if transport == nil {
 		return errors.New("stdio transport is nil")
 	}
 	if strings.TrimSpace(transport.GetCommand()) == "" {
 		return errors.New("stdio command is required")
 	}
-	requestBytes, err := marshalPayload(metadata.Encoding, request)
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-	metadataEnv, err := metadata.Env()
+	rpcPath, err := method.Path()
 	if err != nil {
 		return err
+	}
+	requestBytes, err := MarshalPayload(PayloadFormatBinary, request)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
 	}
 
 	callCtx := ctx
@@ -246,8 +89,10 @@ func CallUnary(ctx context.Context, transport *configv1.StdioTransport, timeout 
 		defer cancel()
 	}
 
-	cmd := exec.CommandContext(callCtx, transport.GetCommand(), transport.GetArgs()...)
-	cmd.Env = appendProviderAndMetadataEnv(os.Environ(), transport.GetEnv(), metadataEnv)
+	args := append([]string{}, transport.GetArgs()...)
+	args = append(args, rpcPath)
+	cmd := exec.CommandContext(callCtx, transport.GetCommand(), args...)
+	cmd.Env = appendProviderEnv(os.Environ(), transport.GetEnv())
 	cmd.Stdin = bytes.NewReader(requestBytes)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -263,35 +108,87 @@ func CallUnary(ctx context.Context, transport *configv1.StdioTransport, timeout 
 	if stdout.Len() == 0 {
 		return errors.New("provider command wrote no response to stdout")
 	}
-	if err := unmarshalPayload(metadata.Encoding, stdout.Bytes(), response); err != nil {
+	if _, err := UnmarshalPayloadAuto(stdout.Bytes(), response); err != nil {
 		return fmt.Errorf("decode response: %w", err)
 	}
 	return nil
 }
 
-func marshalPayload(encoding rpcv1.PayloadEncoding, message proto.Message) ([]byte, error) {
-	switch encoding {
-	case rpcv1.PayloadEncoding_PAYLOAD_ENCODING_PROTOBUF_BINARY:
+// MarshalPayload encodes one protobuf message for stdio RPC stdin/stdout.
+func MarshalPayload(format PayloadFormat, message proto.Message) ([]byte, error) {
+	if message == nil {
+		return nil, errors.New("protobuf message is nil")
+	}
+	switch format {
+	case PayloadFormatBinary:
 		return proto.Marshal(message)
-	case rpcv1.PayloadEncoding_PAYLOAD_ENCODING_PROTOBUF_TEXTPROTO:
+	case PayloadFormatTextproto:
 		return prototext.MarshalOptions{}.Marshal(message)
 	default:
-		return nil, fmt.Errorf("unsupported payload encoding %s", encoding.String())
+		return nil, fmt.Errorf("unsupported stdio RPC payload format %q", format)
 	}
 }
 
-func unmarshalPayload(encoding rpcv1.PayloadEncoding, data []byte, message proto.Message) error {
-	switch encoding {
-	case rpcv1.PayloadEncoding_PAYLOAD_ENCODING_PROTOBUF_BINARY:
+// UnmarshalPayload decodes one protobuf message from a known stdio RPC format.
+func UnmarshalPayload(format PayloadFormat, data []byte, message proto.Message) error {
+	if message == nil {
+		return errors.New("protobuf message is nil")
+	}
+	switch format {
+	case PayloadFormatBinary:
 		return proto.Unmarshal(data, message)
-	case rpcv1.PayloadEncoding_PAYLOAD_ENCODING_PROTOBUF_TEXTPROTO:
+	case PayloadFormatTextproto:
 		return prototext.UnmarshalOptions{DiscardUnknown: false}.Unmarshal(data, message)
 	default:
-		return fmt.Errorf("unsupported payload encoding %s", encoding.String())
+		return fmt.Errorf("unsupported stdio RPC payload format %q", format)
 	}
 }
 
-func appendProviderAndMetadataEnv(base []string, providerEnv map[string]string, metadataEnv []string) []string {
+// UnmarshalPayloadAuto decodes binary protobuf or textproto input and returns
+// the detected format so servers can mirror it for the response.
+func UnmarshalPayloadAuto(data []byte, message proto.Message) (PayloadFormat, error) {
+	if message == nil {
+		return "", errors.New("protobuf message is nil")
+	}
+
+	var problems []error
+	for _, format := range candidateFormats(data) {
+		candidate := message.ProtoReflect().New().Interface()
+		if err := UnmarshalPayload(format, data, candidate); err != nil {
+			problems = append(problems, fmt.Errorf("%s: %w", format, err))
+			continue
+		}
+		proto.Reset(message)
+		proto.Merge(message, candidate)
+		return format, nil
+	}
+	return "", errors.Join(problems...)
+}
+
+func candidateFormats(data []byte) []PayloadFormat {
+	if looksLikeTextproto(data) {
+		return []PayloadFormat{PayloadFormatTextproto, PayloadFormatBinary}
+	}
+	return []PayloadFormat{PayloadFormatBinary, PayloadFormatTextproto}
+}
+
+func looksLikeTextproto(data []byte) bool {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 {
+		return true
+	}
+	if !utf8.Valid(trimmed) {
+		return false
+	}
+	for _, r := range string(trimmed) {
+		if r < 0x20 && r != '\n' && r != '\r' && r != '\t' {
+			return false
+		}
+	}
+	return bytes.ContainsAny(trimmed, ":{}")
+}
+
+func appendProviderEnv(base []string, providerEnv map[string]string) []string {
 	env := append([]string{}, base...)
 	keys := make([]string, 0, len(providerEnv))
 	for key := range providerEnv {
@@ -301,7 +198,7 @@ func appendProviderAndMetadataEnv(base []string, providerEnv map[string]string, 
 	for _, key := range keys {
 		env = append(env, key+"="+providerEnv[key])
 	}
-	return append(env, metadataEnv...)
+	return env
 }
 
 func stderrSuffix(stderr string) string {
@@ -313,31 +210,4 @@ func stderrSuffix(stderr string) string {
 		stderr = stderr[:4096] + "…"
 	}
 	return "; stderr: " + stderr
-}
-
-func supportedEncodingSet(encodings []rpcv1.PayloadEncoding) map[rpcv1.PayloadEncoding]bool {
-	supported := make(map[rpcv1.PayloadEncoding]bool, len(encodings))
-	for _, encoding := range encodings {
-		if isKnownPayloadEncoding(encoding) {
-			supported[encoding] = true
-		}
-	}
-	return supported
-}
-
-func isKnownPayloadEncoding(encoding rpcv1.PayloadEncoding) bool {
-	switch encoding {
-	case rpcv1.PayloadEncoding_PAYLOAD_ENCODING_PROTOBUF_BINARY,
-		rpcv1.PayloadEncoding_PAYLOAD_ENCODING_PROTOBUF_TEXTPROTO:
-		return true
-	default:
-		return false
-	}
-}
-
-func cloneCapabilities(capabilities *rpcv1.StdioRpcCapabilitiesResponse) *rpcv1.StdioRpcCapabilitiesResponse {
-	if capabilities == nil {
-		return nil
-	}
-	return proto.Clone(capabilities).(*rpcv1.StdioRpcCapabilitiesResponse)
 }

@@ -11,7 +11,6 @@ import (
 
 	"recall/internal/stdiorpc"
 	configv1 "recall/proto/recall/config/v1"
-	rpcv1 "recall/proto/recall/rpc/v1"
 	searchv1 "recall/proto/recall/search/v1"
 
 	"google.golang.org/grpc"
@@ -32,9 +31,7 @@ type Client interface {
 // ProviderClientOptions controls transport details that are not operator-owned
 // provider registry fields.
 type ProviderClientOptions struct {
-	CapabilityClient   *stdiorpc.CapabilityClient
-	EncodingPreference stdiorpc.EncodingPreference
-	GRPCDialOptions    []grpc.DialOption
+	GRPCDialOptions []grpc.DialOption
 }
 
 // NewProviderClient binds one provider registry entry to the typed search
@@ -46,7 +43,7 @@ func NewProviderClient(provider *configv1.Provider, options ProviderClientOption
 	timeout := time.Duration(provider.GetTimeoutMs()) * time.Millisecond
 	switch transport := provider.GetTransport().(type) {
 	case *configv1.Provider_Stdio:
-		return NewStdioClient(provider.GetId(), transport.Stdio, timeout, options.CapabilityClient, options.EncodingPreference)
+		return NewStdioClient(provider.GetId(), transport.Stdio, timeout)
 	case *configv1.Provider_Grpc:
 		return NewGRPCClient(transport.Grpc.GetEndpoint(), timeout, options.GRPCDialOptions...)
 	case nil:
@@ -58,16 +55,14 @@ func NewProviderClient(provider *configv1.Provider, options ProviderClientOption
 
 // StdioClient calls SearchProvider.Search over one-shot stdio RPC processes.
 type StdioClient struct {
-	providerID         string
-	transport          *configv1.StdioTransport
-	timeout            time.Duration
-	capabilityClient   *stdiorpc.CapabilityClient
-	encodingPreference stdiorpc.EncodingPreference
+	providerID string
+	transport  *configv1.StdioTransport
+	timeout    time.Duration
 }
 
 // NewStdioClient creates a typed search client backed by the generic stdio RPC
-// runner and provider capability discovery.
-func NewStdioClient(providerID string, transport *configv1.StdioTransport, timeout time.Duration, capabilityClient *stdiorpc.CapabilityClient, encodingPreference stdiorpc.EncodingPreference) (*StdioClient, error) {
+// runner.
+func NewStdioClient(providerID string, transport *configv1.StdioTransport, timeout time.Duration) (*StdioClient, error) {
 	if strings.TrimSpace(providerID) == "" {
 		return nil, errors.New("provider id is required")
 	}
@@ -77,54 +72,25 @@ func NewStdioClient(providerID string, transport *configv1.StdioTransport, timeo
 	if strings.TrimSpace(transport.GetCommand()) == "" {
 		return nil, fmt.Errorf("provider %q stdio command is required", providerID)
 	}
-	if capabilityClient == nil {
-		capabilityClient = stdiorpc.NewCapabilityClient()
-	}
 	return &StdioClient{
-		providerID:         providerID,
-		transport:          transport,
-		timeout:            timeout,
-		capabilityClient:   capabilityClient,
-		encodingPreference: encodingPreference,
+		providerID: providerID,
+		transport:  transport,
+		timeout:    timeout,
 	}, nil
 }
 
-// Search discovers the provider's supported stdio payload encodings, chooses a
-// mutually supported encoding, then invokes SearchProvider.Search.
+// Search invokes SearchProvider.Search over a one-shot stdio process.
 func (client *StdioClient) Search(ctx context.Context, request *searchv1.SearchRequest) (*searchv1.SearchResponse, error) {
 	if request == nil {
 		return nil, fmt.Errorf("search provider %q: request is nil", client.providerID)
 	}
 
-	capabilities, err := client.capabilityClient.Get(ctx, client.providerID, client.transport, client.timeout)
-	if err != nil {
-		return nil, err
-	}
-	encoding, err := stdiorpc.SelectPayloadEncoding(capabilities, client.encodingPreference)
-	if err != nil {
-		return nil, fmt.Errorf("search provider %q: select stdio payload encoding: %w", client.providerID, err)
-	}
-
 	response := &searchv1.SearchResponse{}
-	metadata := stdiorpc.CallMetadata{
-		Service:  SearchService,
-		Method:   SearchMethod,
-		Encoding: encoding,
-	}
-	if err := stdiorpc.CallUnary(ctx, client.transport, client.timeout, metadata, request, response); err != nil {
+	method := stdiorpc.MethodKey{Service: SearchService, Method: SearchMethod}
+	if err := stdiorpc.CallUnary(ctx, client.transport, client.timeout, method, request, response); err != nil {
 		return nil, fmt.Errorf("search provider %q: stdio Search call: %w", client.providerID, err)
 	}
 	return response, nil
-}
-
-// SelectedEncoding returns the encoding recall would use for the current cached
-// or freshly discovered stdio capabilities.
-func (client *StdioClient) SelectedEncoding(ctx context.Context) (rpcv1.PayloadEncoding, error) {
-	capabilities, err := client.capabilityClient.Get(ctx, client.providerID, client.transport, client.timeout)
-	if err != nil {
-		return rpcv1.PayloadEncoding_PAYLOAD_ENCODING_UNSPECIFIED, err
-	}
-	return stdiorpc.SelectPayloadEncoding(capabilities, client.encodingPreference)
 }
 
 type grpcInvoker interface {
