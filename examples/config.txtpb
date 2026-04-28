@@ -1,0 +1,12 @@
+# Example recall provider registry.
+# Copy to ~/.config/recall/config.txtpb after installing recall-example-provider.
+providers {
+  id: "example"
+  enabled: true
+  weight: 1.0
+  timeout_ms: 1500
+  default_limit: 10
+  stdio {
+    command: "recall-example-provider"
+  }
+}
