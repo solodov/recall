@@ -16,6 +16,7 @@ import (
 	configv1 "recall/proto/recall/config/v1"
 	rpcv1 "recall/proto/recall/rpc/v1"
 
+	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -154,7 +155,7 @@ func DiscoverCapabilities(ctx context.Context, providerID string, transport *con
 		Method:   ControlGetCapabilities,
 		Encoding: rpcv1.PayloadEncoding_PAYLOAD_ENCODING_PROTOBUF_BINARY,
 	}
-	if err := runBinaryControlCall(ctx, transport, timeout, metadata, request, response); err != nil {
+	if err := CallUnary(ctx, transport, timeout, metadata, request, response); err != nil {
 		return nil, fmt.Errorf("discover capabilities for provider %q: %w", providerID, err)
 	}
 	if err := ValidateCapabilities(response); err != nil {
@@ -219,8 +220,17 @@ func ValidateCapabilities(capabilities *rpcv1.StdioRpcCapabilitiesResponse) erro
 	return errors.Join(problems...)
 }
 
-func runBinaryControlCall(ctx context.Context, transport *configv1.StdioTransport, timeout time.Duration, metadata CallMetadata, request proto.Message, response proto.Message) error {
-	requestBytes, err := proto.Marshal(request)
+// CallUnary executes one unary protobuf RPC over a one-shot stdio provider
+// process. Metadata identifies the service, method, and payload encoding while
+// stdin/stdout carry only the encoded request and response messages.
+func CallUnary(ctx context.Context, transport *configv1.StdioTransport, timeout time.Duration, metadata CallMetadata, request proto.Message, response proto.Message) error {
+	if transport == nil {
+		return errors.New("stdio transport is nil")
+	}
+	if strings.TrimSpace(transport.GetCommand()) == "" {
+		return errors.New("stdio command is required")
+	}
+	requestBytes, err := marshalPayload(metadata.Encoding, request)
 	if err != nil {
 		return fmt.Errorf("marshal request: %w", err)
 	}
@@ -253,10 +263,32 @@ func runBinaryControlCall(ctx context.Context, transport *configv1.StdioTranspor
 	if stdout.Len() == 0 {
 		return errors.New("provider command wrote no response to stdout")
 	}
-	if err := proto.Unmarshal(stdout.Bytes(), response); err != nil {
-		return fmt.Errorf("decode binary protobuf response: %w", err)
+	if err := unmarshalPayload(metadata.Encoding, stdout.Bytes(), response); err != nil {
+		return fmt.Errorf("decode response: %w", err)
 	}
 	return nil
+}
+
+func marshalPayload(encoding rpcv1.PayloadEncoding, message proto.Message) ([]byte, error) {
+	switch encoding {
+	case rpcv1.PayloadEncoding_PAYLOAD_ENCODING_PROTOBUF_BINARY:
+		return proto.Marshal(message)
+	case rpcv1.PayloadEncoding_PAYLOAD_ENCODING_PROTOBUF_TEXTPROTO:
+		return prototext.MarshalOptions{}.Marshal(message)
+	default:
+		return nil, fmt.Errorf("unsupported payload encoding %s", encoding.String())
+	}
+}
+
+func unmarshalPayload(encoding rpcv1.PayloadEncoding, data []byte, message proto.Message) error {
+	switch encoding {
+	case rpcv1.PayloadEncoding_PAYLOAD_ENCODING_PROTOBUF_BINARY:
+		return proto.Unmarshal(data, message)
+	case rpcv1.PayloadEncoding_PAYLOAD_ENCODING_PROTOBUF_TEXTPROTO:
+		return prototext.UnmarshalOptions{DiscardUnknown: false}.Unmarshal(data, message)
+	default:
+		return fmt.Errorf("unsupported payload encoding %s", encoding.String())
+	}
 }
 
 func appendProviderAndMetadataEnv(base []string, providerEnv map[string]string, metadataEnv []string) []string {

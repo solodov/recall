@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package recall.search.v1;
 
+option go_package = "recall/proto/recall/search/v1;searchv1";
+
 import "google/protobuf/timestamp.proto";
 
 // SearchProvider is the recall-compatible provider service. Transports bind
