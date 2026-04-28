@@ -31,6 +31,10 @@ type Options struct {
 	// Limit overrides provider default_limit when non-zero.
 	Limit uint32
 
+	// Kinds post-filters normalized hits by provider kind after providers have
+	// searched their own query semantics. It is never sent in SearchRequest.
+	Kinds []string
+
 	// ClientFactory is injectable so tests and future diagnostics can exercise
 	// orchestration without launching provider processes.
 	ClientFactory ClientFactory
@@ -74,6 +78,10 @@ func Search(ctx context.Context, cfg *configv1.RecallConfig, query string, optio
 	if err != nil {
 		return nil, err
 	}
+	kindFilter, err := listFilter(options.Kinds, "kind")
+	if err != nil {
+		return nil, err
+	}
 	if len(selected) == 0 {
 		return nil, errors.New("no enabled providers selected")
 	}
@@ -104,7 +112,7 @@ func Search(ctx context.Context, cfg *configv1.RecallConfig, query string, optio
 			result.Failures = append(result.Failures, item.failure)
 			continue
 		}
-		result.Responses = append(result.Responses, item.response)
+		result.Responses = append(result.Responses, normalize.FilterKinds(item.response, kindFilter))
 	}
 	if len(result.Responses) == 0 && len(result.Failures) > 0 {
 		return result, errors.New("all selected providers failed")
@@ -200,17 +208,21 @@ func providerWeights(providers []*configv1.Provider) map[string]float64 {
 }
 
 func sourceFilter(sources []string) (map[string]bool, error) {
+	return listFilter(sources, "source")
+}
+
+func listFilter(values []string, label string) (map[string]bool, error) {
 	wanted := map[string]bool{}
-	for _, sourceList := range sources {
-		for _, source := range strings.Split(sourceList, ",") {
-			source = strings.TrimSpace(source)
-			if source == "" {
+	for _, valueList := range values {
+		for _, value := range strings.Split(valueList, ",") {
+			value = strings.TrimSpace(value)
+			if value == "" {
 				continue
 			}
-			if wanted[source] {
-				return nil, fmt.Errorf("source %q was requested more than once", source)
+			if wanted[value] {
+				return nil, fmt.Errorf("%s %q was requested more than once", label, value)
 			}
-			wanted[source] = true
+			wanted[value] = true
 		}
 	}
 	return wanted, nil

@@ -4,7 +4,7 @@ title: Federated recall CLI with protobuf SearchProvider contract
 status: implementing
 created: 2026-04-28
 updated: 2026-04-28
-currentPhase: 9
+currentPhase: 11
 externalRef: 
 origin: 
 ---
@@ -52,8 +52,8 @@ Breaking provider API changes create a new package such as `recall.search.v2`. A
 - [x] 6. Implement a Go example stdio RPC provider and sample config
 - [x] 7. Normalize and validate provider responses before ranking
 - [x] 8. Centralize rendering around named URIs and groups
-- [ ] 9. Blend provider-local result order instead of provider scores
-- [ ] 10. Adapt org-search and shiny as real providers
+- [x] 9. Blend provider-local result order instead of provider scores
+- [x] 10. Adapt org-search and shiny as real providers
 - [ ] 11. Keep query semantics source-specific
 - [ ] 12. Leave room for future providers and aggregate indexing
 

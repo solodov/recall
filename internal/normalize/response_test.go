@@ -133,6 +133,33 @@ func TestSearchResponseRejectsNonFiniteScore(t *testing.T) {
 	}
 }
 
+func TestFilterKindsKeepsOnlyRequestedKindsAfterProviderSearch(t *testing.T) {
+	noteHit := &searchv1.SearchHit{Id: "note-1", Kind: "note", Title: "Note"}
+	eventHit := &searchv1.SearchHit{Id: "event-1", Kind: "event", Title: "Event"}
+	warning := &searchv1.Warning{Message: "provider warning"}
+	response := ProviderResponse{
+		ProviderID: "example",
+		Hits: []Hit{
+			{ProviderID: "example", ProviderRank: 1, Hit: noteHit},
+			{ProviderID: "example", ProviderRank: 2, Hit: eventHit},
+		},
+		Warnings: []Warning{{ProviderID: "example", Warning: warning}},
+		Raw:      &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{noteHit, eventHit}, Warnings: []*searchv1.Warning{warning}},
+	}
+
+	filtered := FilterKinds(response, map[string]bool{"event": true})
+
+	if len(filtered.Hits) != 1 || filtered.Hits[0].Hit.GetId() != "event-1" {
+		t.Fatalf("filtered hits = %#v, want only event hit", filtered.Hits)
+	}
+	if len(filtered.Warnings) != 1 || filtered.Warnings[0].Warning.GetMessage() != "provider warning" {
+		t.Fatalf("filtered warnings = %#v, want warnings preserved", filtered.Warnings)
+	}
+	if len(filtered.Raw.GetHits()) != 1 || filtered.Raw.GetHits()[0].GetId() != "event-1" {
+		t.Fatalf("filtered raw response = %#v, want only event hit", filtered.Raw)
+	}
+}
+
 func firstError(_ ProviderResponse, err error) error {
 	return err
 }

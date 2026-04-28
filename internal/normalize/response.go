@@ -84,6 +84,34 @@ func SearchResponse(providerID string, response *searchv1.SearchResponse) (Provi
 	return normalized, nil
 }
 
+// FilterKinds keeps only hits whose provider-native kind appears in kindFilter.
+// An empty filter returns response unchanged because recall treats --kind as a
+// presentation/orchestration control, not part of the provider SearchRequest.
+func FilterKinds(response ProviderResponse, kindFilter map[string]bool) ProviderResponse {
+	if len(kindFilter) == 0 {
+		return response
+	}
+	filtered := ProviderResponse{
+		ProviderID: response.ProviderID,
+		Hits:       make([]Hit, 0, len(response.Hits)),
+		Warnings:   append([]Warning{}, response.Warnings...),
+	}
+	filtered.Raw = &searchv1.SearchResponse{Warnings: make([]*searchv1.Warning, 0, len(response.Warnings))}
+	for _, hit := range response.Hits {
+		if hit.Hit == nil || !kindFilter[hit.Hit.GetKind()] {
+			continue
+		}
+		filtered.Hits = append(filtered.Hits, hit)
+		filtered.Raw.Hits = append(filtered.Raw.Hits, proto.Clone(hit.Hit).(*searchv1.SearchHit))
+	}
+	for _, warning := range response.Warnings {
+		if warning.Warning != nil {
+			filtered.Raw.Warnings = append(filtered.Raw.Warnings, proto.Clone(warning.Warning).(*searchv1.Warning))
+		}
+	}
+	return filtered
+}
+
 func validateHit(location string, hit *searchv1.SearchHit) []error {
 	if hit == nil {
 		return []error{fmt.Errorf("%s is nil", location)}

@@ -63,6 +63,7 @@ func (app App) Run(ctx context.Context, args []string) error {
 	result, err := search(ctx, cfg, parsed.query, orchestrator.Options{
 		Sources: parsed.sources,
 		Limit:   parsed.limit,
+		Kinds:   parsed.kinds,
 	})
 	if result != nil {
 		var renderErr error
@@ -82,6 +83,7 @@ type parsedArgs struct {
 	query   string
 	sources []string
 	limit   uint32
+	kinds   []string
 	grouped bool
 	format  outputFormat
 }
@@ -98,6 +100,8 @@ func parseArgs(args []string, stderr io.Writer) (parsedArgs, error) {
 	flags.SetOutput(stderr)
 	var sources stringListFlag
 	flags.Var(&sources, "source", "comma-separated provider IDs to query")
+	var kinds stringListFlag
+	flags.Var(&kinds, "kind", "comma-separated result kinds to keep after provider search")
 	limit := flags.Uint("limit", 0, "override per-provider result limit")
 	grouped := flags.Bool("grouped", false, "group output by source and provider group")
 	format := flags.String("format", string(outputFormatHuman), "output format: human or json")
@@ -118,7 +122,7 @@ func parseArgs(args []string, stderr io.Writer) (parsedArgs, error) {
 	default:
 		return parsedArgs{}, fmt.Errorf("unsupported --format %q; use human or json", *format)
 	}
-	return parsedArgs{query: query, sources: sources, limit: uint32(*limit), grouped: *grouped, format: parsedFormat}, nil
+	return parsedArgs{query: query, sources: sources, limit: uint32(*limit), kinds: kinds, grouped: *grouped, format: parsedFormat}, nil
 }
 
 func renderFailures(writer io.Writer, failures []orchestrator.ProviderFailure) {

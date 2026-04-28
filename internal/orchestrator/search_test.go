@@ -67,6 +67,35 @@ func TestSearchRoutesRequestedSourcesAndLimitOverride(t *testing.T) {
 	}
 }
 
+func TestSearchAppliesKindAsPostFilterWithoutChangingProviderRequest(t *testing.T) {
+	cfg := &configv1.RecallConfig{Providers: []*configv1.Provider{provider("example", true, 10)}}
+	factory := &recordingFactory{hits: map[string][]*searchv1.SearchHit{
+		"example": {
+			{Id: "example:note", Kind: "note", Title: "Note"},
+			{Id: "example:event", Kind: "event", Title: "Event"},
+		},
+	}}
+
+	result, err := Search(context.Background(), cfg, "alice meeting", Options{Kinds: []string{"event"}, ClientFactory: factory.New})
+	if err != nil {
+		t.Fatalf("Search returned error: %v", err)
+	}
+
+	request := factory.requests["example"]
+	if request.GetQuery() != "alice meeting" || request.GetLimit() != 10 {
+		t.Fatalf("provider request = %#v, want only original query and limit", request)
+	}
+	if len(result.Responses) != 1 || len(result.Responses[0].Hits) != 1 {
+		t.Fatalf("responses = %#v, want one filtered hit", result.Responses)
+	}
+	if result.Responses[0].Hits[0].Hit.GetId() != "example:event" {
+		t.Fatalf("filtered hit = %#v, want event hit", result.Responses[0].Hits[0].Hit)
+	}
+	if len(result.BlendedHits) != 1 || result.BlendedHits[0].Normalized.Hit.GetId() != "example:event" {
+		t.Fatalf("blended hits = %#v, want only event hit", result.BlendedHits)
+	}
+}
+
 func TestSearchKeepsPartialFailuresSeparate(t *testing.T) {
 	cfg := &configv1.RecallConfig{Providers: []*configv1.Provider{
 		provider("ok", true, 10),
@@ -112,6 +141,7 @@ func TestSearchRejectsUnknownSource(t *testing.T) {
 type recordingFactory struct {
 	requests map[string]*searchv1.SearchRequest
 	failures map[string]error
+	hits     map[string][]*searchv1.SearchHit
 }
 
 func (factory *recordingFactory) New(provider *configv1.Provider) (searchclient.Client, error) {
@@ -134,6 +164,9 @@ func (client fakeClient) Search(_ context.Context, request *searchv1.SearchReque
 	client.factory.requests[client.providerID] = request
 	if err := client.factory.failures[client.providerID]; err != nil {
 		return nil, err
+	}
+	if hits := client.factory.hits[client.providerID]; len(hits) > 0 {
+		return &searchv1.SearchResponse{Hits: hits}, nil
 	}
 	return &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{{
 		Id:    client.providerID + ":1",

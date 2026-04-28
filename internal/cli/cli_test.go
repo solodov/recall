@@ -59,11 +59,37 @@ func TestRunLoadsConfigSearchesAndRendersResults(t *testing.T) {
 	if receivedOptions.Limit != 7 {
 		t.Fatalf("limit = %d, want 7", receivedOptions.Limit)
 	}
+	if len(receivedOptions.Kinds) != 0 {
+		t.Fatalf("kinds = %#v, want none", receivedOptions.Kinds)
+	}
 	output := stdout.String()
 	for _, want := range []string{"[example] Example result (note)", "matched text"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("stdout %q does not contain %q", output, want)
 		}
+	}
+}
+
+func TestRunPassesKindAsRecallPostFilterOption(t *testing.T) {
+	cfg := &configv1.RecallConfig{}
+	var receivedOptions orchestrator.Options
+	app := App{
+		Stdout: &bytes.Buffer{},
+		Stderr: &bytes.Buffer{},
+		LoadConfig: func() (*configv1.RecallConfig, error) {
+			return cfg, nil
+		},
+		Search: func(_ context.Context, _ *configv1.RecallConfig, _ string, options orchestrator.Options) (*orchestrator.Result, error) {
+			receivedOptions = options
+			return &orchestrator.Result{}, nil
+		},
+	}
+
+	if err := app.Run(context.Background(), []string{"--kind", "event,email", "alice"}); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if got := strings.Join(receivedOptions.Kinds, ","); got != "event,email" {
+		t.Fatalf("kinds = %q, want event,email", got)
 	}
 }
 
