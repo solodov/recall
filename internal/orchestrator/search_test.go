@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"recall/internal/runtime"
 	"recall/internal/searchclient"
 	configv1 "recall/proto/recall/config/v1"
 	searchv1 "recall/proto/recall/search/v1"
@@ -18,7 +19,7 @@ func TestSearchSelectsEnabledProvidersAndBuildsRequests(t *testing.T) {
 	}}
 	factory := &recordingFactory{}
 
-	result, err := Search(context.Background(), cfg, "alice meeting", Options{ClientFactory: factory.New})
+	result, err := Search(testRuntime(), cfg, "alice meeting", Options{ClientFactory: factory.New})
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
@@ -47,7 +48,7 @@ func TestSearchRoutesRequestedSourcesAndLimitOverride(t *testing.T) {
 	}}
 	factory := &recordingFactory{}
 
-	result, err := Search(context.Background(), cfg, "deploy", Options{
+	result, err := Search(testRuntime(), cfg, "deploy", Options{
 		Sources:       []string{"mail"},
 		Limit:         5,
 		ClientFactory: factory.New,
@@ -76,7 +77,7 @@ func TestSearchAppliesKindAsPostFilterWithoutChangingProviderRequest(t *testing.
 		},
 	}}
 
-	result, err := Search(context.Background(), cfg, "alice meeting", Options{Kinds: []string{"event"}, ClientFactory: factory.New})
+	result, err := Search(testRuntime(), cfg, "alice meeting", Options{Kinds: []string{"event"}, ClientFactory: factory.New})
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
@@ -103,7 +104,7 @@ func TestSearchKeepsPartialFailuresSeparate(t *testing.T) {
 	}}
 	factory := &recordingFactory{failures: map[string]error{"bad": errors.New("boom")}}
 
-	result, err := Search(context.Background(), cfg, "query", Options{ClientFactory: factory.New})
+	result, err := Search(testRuntime(), cfg, "query", Options{ClientFactory: factory.New})
 	if err != nil {
 		t.Fatalf("Search returned error despite partial success: %v", err)
 	}
@@ -120,7 +121,7 @@ func TestSearchFailsWhenAllSelectedProvidersFail(t *testing.T) {
 	cfg := &configv1.RecallConfig{Providers: []*configv1.Provider{provider("bad", true, 10)}}
 	factory := &recordingFactory{failures: map[string]error{"bad": errors.New("boom")}}
 
-	result, err := Search(context.Background(), cfg, "query", Options{ClientFactory: factory.New})
+	result, err := Search(testRuntime(), cfg, "query", Options{ClientFactory: factory.New})
 	if err == nil {
 		t.Fatal("Search succeeded with all providers failed")
 	}
@@ -132,7 +133,7 @@ func TestSearchFailsWhenAllSelectedProvidersFail(t *testing.T) {
 func TestSearchRejectsUnknownSource(t *testing.T) {
 	cfg := &configv1.RecallConfig{Providers: []*configv1.Provider{provider("org", true, 10)}}
 
-	_, err := Search(context.Background(), cfg, "query", Options{Sources: []string{"missing"}, ClientFactory: (&recordingFactory{}).New})
+	_, err := Search(testRuntime(), cfg, "query", Options{Sources: []string{"missing"}, ClientFactory: (&recordingFactory{}).New})
 	if err == nil {
 		t.Fatal("Search succeeded with unknown source")
 	}
@@ -173,6 +174,10 @@ func (client fakeClient) Search(_ context.Context, request *searchv1.SearchReque
 		Kind:  "note",
 		Title: client.providerID + " result",
 	}}}, nil
+}
+
+func testRuntime() runtime.Context {
+	return runtime.New(context.Background(), nil)
 }
 
 func provider(id string, enabled bool, limit uint32) *configv1.Provider {

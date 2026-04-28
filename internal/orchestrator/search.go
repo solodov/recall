@@ -2,7 +2,6 @@
 package orchestrator
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"sort"
@@ -11,6 +10,7 @@ import (
 
 	"recall/internal/normalize"
 	"recall/internal/rank"
+	"recall/internal/runtime"
 	"recall/internal/searchclient"
 	"recall/internal/stdiorpc"
 	configv1 "recall/proto/recall/config/v1"
@@ -61,7 +61,8 @@ type ProviderFailure struct {
 
 // Search loads the selected enabled providers from cfg, sends each the same
 // query plus provider-local limit, and returns responses in config order.
-func Search(ctx context.Context, cfg *configv1.RecallConfig, query string, options Options) (*Result, error) {
+func Search(run runtime.Context, cfg *configv1.RecallConfig, query string, options Options) (*Result, error) {
+	ctx := run.Std()
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil, errors.New("query must be non-empty")
@@ -85,6 +86,8 @@ func Search(ctx context.Context, cfg *configv1.RecallConfig, query string, optio
 	if len(selected) == 0 {
 		return nil, errors.New("no enabled providers selected")
 	}
+	run.Span().Set("provider_count", len(selected), "source_filter_count", len(options.Sources), "kind_filter_count", len(options.Kinds))
+	run.Log().InfoContext(ctx, "dispatching recall search", "provider_count", len(selected))
 
 	indexedResults := make(chan indexedProviderResult, len(selected))
 	var wg sync.WaitGroup
@@ -92,7 +95,7 @@ func Search(ctx context.Context, cfg *configv1.RecallConfig, query string, optio
 		wg.Add(1)
 		go func(index int, provider *configv1.Provider) {
 			defer wg.Done()
-			indexedResults <- searchOneProvider(ctx, index, provider, query, options.Limit, clientFactory)
+			indexedResults <- searchOneProvider(run, index, provider, query, options.Limit, clientFactory)
 		}(index, provider)
 	}
 	wg.Wait()
@@ -118,6 +121,7 @@ func Search(ctx context.Context, cfg *configv1.RecallConfig, query string, optio
 		return result, errors.New("all selected providers failed")
 	}
 	result.BlendedHits = rank.Blend(result.Responses, providerWeights(selected))
+	run.Span().Set("response_count", len(result.Responses), "failure_count", len(result.Failures), "blended_hit_count", len(result.BlendedHits))
 	return result, nil
 }
 
@@ -132,10 +136,16 @@ func NewDefaultClientFactory() ClientFactory {
 	}
 }
 
-func searchOneProvider(ctx context.Context, index int, provider *configv1.Provider, query string, limitOverride uint32, clientFactory ClientFactory) indexedProviderResult {
+func searchOneProvider(run runtime.Context, index int, provider *configv1.Provider, query string, limitOverride uint32, clientFactory ClientFactory) indexedProviderResult {
 	providerID := provider.GetId()
+	run = run.WithLogMeta("provider_id", providerID)
+	run, span := run.StartOperation("provider.search", "provider_id", providerID)
+	defer span.End()
+
 	client, err := clientFactory(provider)
 	if err != nil {
+		span.RecordError(err)
+		run.Log().ErrorContext(run.Std(), "create provider client", "err", err)
 		return indexedProviderResult{index: index, failure: ProviderFailure{ProviderID: providerID, Err: err}}
 	}
 	if closer, ok := client.(interface{ Close() error }); ok {
@@ -146,17 +156,30 @@ func searchOneProvider(ctx context.Context, index int, provider *configv1.Provid
 	if limitOverride != 0 {
 		limit = limitOverride
 	}
-	response, err := client.Search(ctx, &searchv1.SearchRequest{Query: query, Limit: limit})
-	if err != nil {
+	var response *searchv1.SearchResponse
+	if err := span.Measure("provider_call", func() error {
+		var err error
+		response, err = client.Search(run.Std(), &searchv1.SearchRequest{Query: query, Limit: limit})
+		return err
+	}, "limit", limit); err != nil {
+		span.RecordError(err)
+		run.Log().WarnContext(run.Std(), "provider search failed", "err", err)
 		return indexedProviderResult{index: index, failure: ProviderFailure{ProviderID: providerID, Err: err}}
 	}
 	if response == nil {
-		return indexedProviderResult{index: index, failure: ProviderFailure{ProviderID: providerID, Err: errors.New("provider returned nil response")}}
+		err := errors.New("provider returned nil response")
+		span.RecordError(err)
+		return indexedProviderResult{index: index, failure: ProviderFailure{ProviderID: providerID, Err: err}}
 	}
 	normalized, err := normalize.SearchResponse(providerID, response)
 	if err != nil {
-		return indexedProviderResult{index: index, failure: ProviderFailure{ProviderID: providerID, Err: fmt.Errorf("invalid provider response: %w", err)}}
+		err = fmt.Errorf("invalid provider response: %w", err)
+		span.RecordError(err)
+		run.Log().WarnContext(run.Std(), "provider response rejected", "err", err)
+		return indexedProviderResult{index: index, failure: ProviderFailure{ProviderID: providerID, Err: err}}
 	}
+	span.Set("hit_count", len(normalized.Hits), "warning_count", len(normalized.Warnings))
+	run.Log().InfoContext(run.Std(), "provider search completed", "hit_count", len(normalized.Hits), "warning_count", len(normalized.Warnings))
 	return indexedProviderResult{index: index, response: normalized}
 }
 

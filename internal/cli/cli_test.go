@@ -11,6 +11,7 @@ import (
 
 	"recall/internal/normalize"
 	"recall/internal/orchestrator"
+	runtimepkg "recall/internal/runtime"
 	configv1 "recall/proto/recall/config/v1"
 	searchv1 "recall/proto/recall/search/v1"
 )
@@ -25,7 +26,8 @@ func TestRunLoadsConfigSearchesAndRendersResults(t *testing.T) {
 		LoadConfig: func() (*configv1.RecallConfig, error) {
 			return cfg, nil
 		},
-		Search: func(_ context.Context, gotCfg *configv1.RecallConfig, query string, options orchestrator.Options) (*orchestrator.Result, error) {
+		NewRuntime: newTestRuntime,
+		Search: func(_ runtimepkg.Context, gotCfg *configv1.RecallConfig, query string, options orchestrator.Options) (*orchestrator.Result, error) {
 			if gotCfg != cfg {
 				t.Fatalf("Search received cfg %#v, want injected cfg", gotCfg)
 			}
@@ -88,9 +90,10 @@ providers {
 	}
 	var providerCount int
 	app := App{
-		Stdout: &bytes.Buffer{},
-		Stderr: &bytes.Buffer{},
-		Search: func(_ context.Context, cfg *configv1.RecallConfig, _ string, _ orchestrator.Options) (*orchestrator.Result, error) {
+		Stdout:     &bytes.Buffer{},
+		Stderr:     &bytes.Buffer{},
+		NewRuntime: newTestRuntime,
+		Search: func(_ runtimepkg.Context, cfg *configv1.RecallConfig, _ string, _ orchestrator.Options) (*orchestrator.Result, error) {
 			providerCount = len(cfg.GetProviders())
 			return &orchestrator.Result{}, nil
 		},
@@ -113,7 +116,8 @@ func TestRunPassesKindAsRecallPostFilterOption(t *testing.T) {
 		LoadConfig: func() (*configv1.RecallConfig, error) {
 			return cfg, nil
 		},
-		Search: func(_ context.Context, _ *configv1.RecallConfig, _ string, options orchestrator.Options) (*orchestrator.Result, error) {
+		NewRuntime: newTestRuntime,
+		Search: func(_ runtimepkg.Context, _ *configv1.RecallConfig, _ string, options orchestrator.Options) (*orchestrator.Result, error) {
 			receivedOptions = options
 			return &orchestrator.Result{}, nil
 		},
@@ -133,7 +137,8 @@ func TestRunReportsPartialProviderFailuresOnStderr(t *testing.T) {
 		Stdout:     &bytes.Buffer{},
 		Stderr:     stderr,
 		LoadConfig: func() (*configv1.RecallConfig, error) { return &configv1.RecallConfig{}, nil },
-		Search: func(context.Context, *configv1.RecallConfig, string, orchestrator.Options) (*orchestrator.Result, error) {
+		NewRuntime: newTestRuntime,
+		Search: func(runtimepkg.Context, *configv1.RecallConfig, string, orchestrator.Options) (*orchestrator.Result, error) {
 			return &orchestrator.Result{Failures: []orchestrator.ProviderFailure{{ProviderID: "bad", Err: errors.New("boom")}}}, errors.New("all selected providers failed")
 		},
 	}
@@ -170,6 +175,7 @@ func TestRunPropagatesConfigLoadFailure(t *testing.T) {
 	wantErr := errors.New("missing config")
 	app := App{
 		Stderr:     &bytes.Buffer{},
+		NewRuntime: newTestRuntime,
 		LoadConfig: func() (*configv1.RecallConfig, error) { return nil, wantErr },
 	}
 
@@ -177,6 +183,10 @@ func TestRunPropagatesConfigLoadFailure(t *testing.T) {
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("Run error = %v, want %v", err, wantErr)
 	}
+}
+
+func newTestRuntime(ctx context.Context, _ RuntimeOptions) (runtimepkg.Context, error) {
+	return runtimepkg.New(ctx, nil), nil
 }
 
 func stringPtr(value string) *string {

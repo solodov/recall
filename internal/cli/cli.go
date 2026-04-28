@@ -12,6 +12,7 @@ import (
 	"recall/internal/config"
 	"recall/internal/orchestrator"
 	"recall/internal/render"
+	"recall/internal/runtime"
 	configv1 "recall/proto/recall/config/v1"
 )
 
@@ -19,7 +20,17 @@ import (
 type ConfigLoader func() (*configv1.RecallConfig, error)
 
 // SearchRunner executes the provider fan-out for a query.
-type SearchRunner func(context.Context, *configv1.RecallConfig, string, orchestrator.Options) (*orchestrator.Result, error)
+type SearchRunner func(runtime.Context, *configv1.RecallConfig, string, orchestrator.Options) (*orchestrator.Result, error)
+
+// RuntimeFactory builds the command runtime after flags have selected log paths
+// and stderr verbosity.
+type RuntimeFactory func(context.Context, RuntimeOptions) (runtime.Context, error)
+
+// RuntimeOptions contains command-line controlled debugging sinks.
+type RuntimeOptions struct {
+	LogPaths runtime.LogPaths
+	LogLevel string
+}
 
 // App contains command dependencies so the query-first CLI can be tested
 // without launching real provider processes.
@@ -29,11 +40,12 @@ type App struct {
 
 	LoadConfig ConfigLoader
 	Search     SearchRunner
+	NewRuntime RuntimeFactory
 }
 
 // Run parses recall's root search command, loads provider config, dispatches
 // the query, and renders provider-agnostic results.
-func (app App) Run(ctx context.Context, args []string) error {
+func (app App) Run(ctx context.Context, args []string) (runErr error) {
 	stdout := app.Stdout
 	if stdout == nil {
 		stdout = io.Discard
@@ -51,38 +63,72 @@ func (app App) Run(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-
-	cfg, err := app.loadConfig(parsed.configPath)
+	runtimeOptions, err := parsed.runtimeOptions()
 	if err != nil {
 		return err
 	}
-	result, err := search(ctx, cfg, parsed.query, orchestrator.Options{
-		Sources: parsed.sources,
-		Limit:   parsed.limit,
-		Kinds:   parsed.kinds,
+	run, err := app.newRuntime(ctx, runtimeOptions)
+	if err != nil {
+		return err
+	}
+	run = run.WithLogMeta("command", "search")
+	run, span := run.StartOperation("recall.search", "query", parsed.query)
+	defer func() {
+		span.RecordError(runErr)
+		span.End()
+	}()
+
+	var cfg *configv1.RecallConfig
+	if err := span.Measure("load_config", func() error {
+		var err error
+		cfg, err = app.loadConfig(parsed.configPath)
+		return err
+	}); err != nil {
+		return err
+	}
+	var result *orchestrator.Result
+	searchErr := span.Measure("search", func() error {
+		var err error
+		result, err = search(run, cfg, parsed.query, orchestrator.Options{
+			Sources: parsed.sources,
+			Limit:   parsed.limit,
+			Kinds:   parsed.kinds,
+		})
+		return err
 	})
+	if searchErr != nil && result == nil {
+		return searchErr
+	}
 	if result != nil {
 		var renderErr error
-		switch parsed.format {
-		case outputFormatJSON:
-			renderErr = render.WriteJSON(stdout, result)
-		case outputFormatHuman:
-			renderErr = render.WriteHuman(stdout, result, render.HumanOptions{Grouped: parsed.grouped})
-			renderFailures(stderr, result.Failures)
-		}
-		return errors.Join(renderErr, err)
+		renderErr = span.Measure("render", func() error {
+			switch parsed.format {
+			case outputFormatJSON:
+				return render.WriteJSON(stdout, result)
+			case outputFormatHuman:
+				if err := render.WriteHuman(stdout, result, render.HumanOptions{Grouped: parsed.grouped}); err != nil {
+					return err
+				}
+				renderFailures(stderr, result.Failures)
+			}
+			return nil
+		}, "format", string(parsed.format), "grouped", parsed.grouped)
+		return errors.Join(renderErr, searchErr)
 	}
-	return err
+	return searchErr
 }
 
 type parsedArgs struct {
-	query      string
-	configPath string
-	sources    []string
-	limit      uint32
-	kinds      []string
-	grouped    bool
-	format     outputFormat
+	query       string
+	configPath  string
+	logPath     string
+	perfLogPath string
+	logLevel    string
+	sources     []string
+	limit       uint32
+	kinds       []string
+	grouped     bool
+	format      outputFormat
 }
 
 type outputFormat string
@@ -96,6 +142,9 @@ func parseArgs(args []string, stderr io.Writer) (parsedArgs, error) {
 	flags := flag.NewFlagSet("recall", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	configPath := flags.String("config", "", "path to the provider registry txtpb file")
+	logPath := flags.String("log-path", "", "path to the main rotated log file")
+	perfLogPath := flags.String("perf-log-path", "", "path to the rotated performance trace log file")
+	logLevel := flags.String("log-level", "off", "also print logs to stderr at level: debug|info|warn|error|off")
 	var sources stringListFlag
 	flags.Var(&sources, "source", "comma-separated provider IDs to query")
 	var kinds stringListFlag
@@ -109,7 +158,7 @@ func parseArgs(args []string, stderr io.Writer) (parsedArgs, error) {
 
 	query := strings.TrimSpace(strings.Join(flags.Args(), " "))
 	if query == "" {
-		return parsedArgs{}, errors.New("usage: recall [--config path] [--source provider[,provider] ...] [--limit n] QUERY")
+		return parsedArgs{}, errors.New("usage: recall [--config path] [--log-path path] [--perf-log-path path] [--log-level level] [--source provider[,provider] ...] [--limit n] QUERY")
 	}
 	if *limit > uint(^uint32(0)) {
 		return parsedArgs{}, fmt.Errorf("--limit %d exceeds uint32 maximum", *limit)
@@ -120,7 +169,28 @@ func parseArgs(args []string, stderr io.Writer) (parsedArgs, error) {
 	default:
 		return parsedArgs{}, fmt.Errorf("unsupported --format %q; use human or json", *format)
 	}
-	return parsedArgs{query: query, configPath: *configPath, sources: sources, limit: uint32(*limit), kinds: kinds, grouped: *grouped, format: parsedFormat}, nil
+	return parsedArgs{query: query, configPath: *configPath, logPath: *logPath, perfLogPath: *perfLogPath, logLevel: *logLevel, sources: sources, limit: uint32(*limit), kinds: kinds, grouped: *grouped, format: parsedFormat}, nil
+}
+
+func (parsed parsedArgs) runtimeOptions() (RuntimeOptions, error) {
+	logPaths, err := runtime.DefaultLogPaths()
+	if err != nil {
+		return RuntimeOptions{}, err
+	}
+	if strings.TrimSpace(parsed.logPath) != "" {
+		logPaths.Main = parsed.logPath
+	}
+	if strings.TrimSpace(parsed.perfLogPath) != "" {
+		logPaths.Perf = parsed.perfLogPath
+	}
+	return RuntimeOptions{LogPaths: logPaths, LogLevel: parsed.logLevel}, nil
+}
+
+func (app App) newRuntime(ctx context.Context, options RuntimeOptions) (runtime.Context, error) {
+	if app.NewRuntime != nil {
+		return app.NewRuntime(ctx, options)
+	}
+	return runtime.NewWithLogPaths(ctx, options.LogPaths, options.LogLevel)
 }
 
 func (app App) loadConfig(configPath string) (*configv1.RecallConfig, error) {
