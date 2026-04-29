@@ -21,7 +21,9 @@ providers {
 }
 ```
 
-If no `--root` is configured, the provider searches its current working directory. Missing configured roots are skipped as a no-op and returned as warnings with code `ripgrep_root_missing`, which keeps shared configs safe across machines. Missing paths encountered during traversal, such as stale symlinks, are also downgraded to warnings instead of failing the whole provider.
+If no `--root` is configured, the provider searches its current working directory. Missing configured roots are skipped as a no-op and returned as warnings with code `ripgrep_root_missing`, which keeps shared configs safe across machines. The provider passes `--no-follow` so interactive ripgrep config such as `--follow` does not turn broken symlinks into search warnings; add symlink targets as explicit `--root` values when you want recall to search them.
+
+Missing paths encountered during traversal are downgraded to warnings instead of failing the whole provider.
 
 Ripgrep hits include typed file targets with line and column metadata. Human output wraps result titles in OSC 8 `recall://` links that `recall-open` can dispatch to a configured editor.
 

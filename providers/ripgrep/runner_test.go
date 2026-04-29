@@ -29,6 +29,7 @@ func TestBuildArgsIncludesJSONFixedStringSearchRootsTypesAndExclusions(t *testin
 		"--column",
 		"--with-filename",
 		"--color=never",
+		"--no-follow",
 		"--type", "go",
 		"--glob", "!**/*_test.*",
 		"--glob", "!**/*.test.*",

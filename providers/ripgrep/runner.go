@@ -71,6 +71,7 @@ func BuildArgs(options RunOptions) ([]string, error) {
 		"--column",
 		"--with-filename",
 		"--color=never",
+		"--no-follow",
 	}
 	typeArgs, err := FileTypeArgs(options.FileTypes)
 	if err != nil {
