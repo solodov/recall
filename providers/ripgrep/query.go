@@ -136,10 +136,14 @@ func parsePathFilter(include bool, value string) (PathFilter, error) {
 	if pattern == "" {
 		return PathFilter{}, errors.New("ripgrep path filter is required")
 	}
-	if _, err := regexp.Compile(pattern); err != nil {
+	if _, err := compilePathPattern(pattern); err != nil {
 		return PathFilter{}, fmt.Errorf("invalid ripgrep path filter %q: %w", pattern, err)
 	}
 	return PathFilter{Include: include, Pattern: pattern}, nil
+}
+
+func compilePathPattern(pattern string) (*regexp.Regexp, error) {
+	return regexp.Compile("(?i:" + pattern + ")")
 }
 
 func validateQuery(query Query) error {

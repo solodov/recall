@@ -80,7 +80,7 @@ func Search(run runtime.Context, cfg *configv1.RecallConfig, query string, optio
 	if err != nil {
 		return nil, err
 	}
-	kindFilter, err := listFilter(options.Kinds, "kind")
+	kindFilter, err := kindFilter(options.Kinds)
 	if err != nil {
 		return nil, err
 	}
@@ -233,6 +233,38 @@ func providerWeights(providers []*configv1.Provider) map[string]float64 {
 
 func sourceFilter(sources []string) (map[string]bool, error) {
 	return listFilter(sources, "source")
+}
+
+func kindFilter(kinds []string) (map[string]bool, error) {
+	wanted := map[string]bool{}
+	seenRequested := map[string]bool{}
+	for _, kindList := range kinds {
+		for _, value := range strings.Split(kindList, ",") {
+			value = strings.TrimSpace(value)
+			if value == "" {
+				continue
+			}
+			if seenRequested[value] {
+				return nil, fmt.Errorf("kind %q was requested more than once", value)
+			}
+			seenRequested[value] = true
+			for _, expanded := range kindAliases(value) {
+				wanted[expanded] = true
+			}
+		}
+	}
+	return wanted, nil
+}
+
+func kindAliases(kind string) []string {
+	switch kind {
+	case "path":
+		return []string{"path", "path_match"}
+	case "content":
+		return []string{"content", "code_match"}
+	default:
+		return []string{kind}
+	}
 }
 
 func listFilter(values []string, label string) (map[string]bool, error) {

@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/solodov/recall/internal/runtime"
@@ -94,6 +95,36 @@ func TestSearchAppliesKindAsPostFilterWithoutChangingProviderRequest(t *testing.
 	}
 	if len(result.BlendedHits) != 1 || result.BlendedHits[0].Normalized.Hit.GetId() != "example:event" {
 		t.Fatalf("blended hits = %#v, want only event hit", result.BlendedHits)
+	}
+}
+
+func TestSearchExpandsPathAndContentKindAliases(t *testing.T) {
+	cfg := &configv1.RecallConfig{Providers: []*configv1.Provider{provider("code", true, 10)}}
+	factory := &recordingFactory{hits: map[string][]*searchv1.SearchHit{
+		"code": {
+			{Id: "code:path", Kind: "path_match", Title: "Path"},
+			{Id: "code:content", Kind: "code_match", Title: "Content"},
+			{Id: "code:note", Kind: "note", Title: "Note"},
+		},
+	}}
+
+	result, err := Search(testRuntime(), cfg, "sample query", Options{Kinds: []string{"path,content"}, ClientFactory: factory.New})
+	if err != nil {
+		t.Fatalf("Search returned error: %v", err)
+	}
+	if len(result.Responses) != 1 || len(result.Responses[0].Hits) != 2 {
+		t.Fatalf("responses = %#v, want path and content hits", result.Responses)
+	}
+	got := result.Responses[0].Hits[0].Hit.GetId() + "," + result.Responses[0].Hits[1].Hit.GetId()
+	if got != "code:path,code:content" {
+		t.Fatalf("filtered ids = %q, want path and content", got)
+	}
+}
+
+func TestSearchRejectsDuplicateKindFilter(t *testing.T) {
+	_, err := Search(testRuntime(), &configv1.RecallConfig{Providers: []*configv1.Provider{provider("code", true, 10)}}, "query", Options{Kinds: []string{"path,path"}, ClientFactory: (&recordingFactory{}).New})
+	if err == nil || !strings.Contains(err.Error(), "kind") {
+		t.Fatalf("Search error = %v, want duplicate kind error", err)
 	}
 }
 

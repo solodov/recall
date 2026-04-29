@@ -96,7 +96,7 @@ func flagConsumesNextValue(arg string) bool {
 		return false
 	}
 	switch arg {
-	case "--config", "--log-path", "--perf-log-path", "--log-level", "--source", "--kind", "--limit", "--format", "-s", "-l", "-f":
+	case "--config", "--log-path", "--perf-log-path", "--log-level", "--source", "--kind", "--limit", "--format", "-s", "-k", "-l", "-f":
 		return true
 	default:
 		return false
@@ -127,12 +127,12 @@ The root command is query-first: all positional arguments are joined into the pr
 
 Source vs kind:
   --source/-s selects which providers or corpora to query, such as code.
-  --kind filters result types returned by providers, such as code_match or note.`),
+  --kind/-k filters result types returned by providers, such as path or content.`),
 		Example: strings.TrimSpace(`recall -ls
 recall sample
 recall -s code "foo -in:test"
-recall --source code "foo -in:test"
-recall --kind code_match -l 20 router
+recall -s code -k path router
+recall --kind content -l 20 router
 recall -f json sample
 recall --config ./examples/config.txtpb sample`),
 		Args: func(cmd *cobra.Command, args []string) error {
@@ -163,7 +163,7 @@ recall --config ./examples/config.txtpb sample`),
 	cmd.PersistentFlags().StringVar(&options.perfLogPath, "perf-log-path", "", "performance trace log path")
 	cmd.PersistentFlags().StringVar(&options.logLevel, "log-level", "off", "also print logs to stderr at level: debug|info|warn|error|off")
 	cmd.Flags().VarP(&options.sources, "source", "s", "comma-separated provider IDs/corpora to query")
-	cmd.Flags().Var(&options.kinds, "kind", "comma-separated result kinds to keep after provider search, e.g. code_match or note")
+	cmd.Flags().VarP(&options.kinds, "kind", "k", "comma-separated result kinds to keep after provider search, e.g. path, content, note, or code_match")
 	cmd.Flags().Uint32VarP(&options.limit, "limit", "l", 0, "override per-provider result limit")
 	cmd.Flags().BoolVarP(&options.grouped, "grouped", "g", true, "group human output by source and provider group (default; use --grouped=false for flat output)")
 	cmd.Flags().StringVarP(&options.format, "format", "f", string(outputFormatHuman), "output format: human or json")
@@ -183,13 +183,13 @@ Common commands:
   recall -ls                               list configured corpora/providers
   recall sample                            search all enabled providers
   recall -s code "foo -in:test"             search only the code corpus
-  recall --source code "foo"                search code with grouped terminal output
-  recall --kind code_match -l 20 foo        show up to 20 code matches per provider
+  recall -s code -k path foo                show matching file paths in code
+  recall -k content -l 20 foo               show up to 20 content matches per provider
   recall -f json sample                    emit machine-readable results
 
 Source vs kind:
   --source/-s selects providers/corpora before search, such as code.
-  --kind filters provider result types after search, such as code_match or note.
+  --kind/-k filters provider result types after search, such as path, content, or note.
 
 Tips:
   Use provider IDs from "recall -ls" with --source/-s.

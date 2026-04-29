@@ -123,11 +123,11 @@ func TestRunPassesKindAsRecallPostFilterOption(t *testing.T) {
 		},
 	}
 
-	if err := app.Run(context.Background(), []string{"--kind", "event,email", "sample"}); err != nil {
+	if err := app.Run(context.Background(), []string{"-k", "path", "--kind", "content", "sample"}); err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
-	if got := strings.Join(receivedOptions.Kinds, ","); got != "event,email" {
-		t.Fatalf("kinds = %q, want event,email", got)
+	if got := strings.Join(receivedOptions.Kinds, ","); got != "path,content" {
+		t.Fatalf("kinds = %q, want path,content", got)
 	}
 }
 
@@ -202,7 +202,7 @@ func TestRunRejectsMissingQueryBeforeLoadingConfig(t *testing.T) {
 	if err == nil {
 		t.Fatal("Run succeeded without query")
 	}
-	for _, want := range []string{"missing query", "configured in your provider registry", "recall -ls", "--source/-s selects", "--kind filters", "provider operators like -in:test"} {
+	for _, want := range []string{"missing query", "configured in your provider registry", "recall -ls", "--source/-s selects", "--kind/-k filters", "provider operators like -in:test"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("missing-query error = %q, want %q", err.Error(), want)
 		}
@@ -228,7 +228,7 @@ func TestRunHelpShowsExamplesAndProviderListing(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 	output := stdout.String()
-	for _, want := range []string{"recall searches configured personal-search providers", "code, notes, calendars", "Source vs kind:", "--source/-s selects", "--kind filters", "Examples:", "recall -ls", "-s code", "--source code", "-f json", "-l 20", "--list-sources", "alias: -ls", "-g, --grouped", "default; use --grouped=false"} {
+	for _, want := range []string{"recall searches configured personal-search providers", "code, notes, calendars", "Source vs kind:", "--source/-s selects", "--kind/-k filters", "Examples:", "recall -ls", "-s code", "-k path", "-f json", "-l 20", "--list-sources", "alias: -ls", "-g, --grouped", "default; use --grouped=false"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("help output %q does not contain %q", output, want)
 		}

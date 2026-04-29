@@ -372,7 +372,7 @@ type compiledPathFilter struct {
 func compilePathFilters(filters []PathFilter) ([]compiledPathFilter, error) {
 	compiled := make([]compiledPathFilter, 0, len(filters))
 	for _, filter := range filters {
-		pattern, err := regexp.Compile(filter.Pattern)
+		pattern, err := compilePathPattern(filter.Pattern)
 		if err != nil {
 			return nil, fmt.Errorf("compile path filter %q: %w", filter.Pattern, err)
 		}

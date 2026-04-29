@@ -172,11 +172,11 @@ func TestRunnerRestrictsContentSearchToIncludePathFilters(t *testing.T) {
 	argsPath := filepath.Join(t.TempDir(), "args")
 	script := fmt.Sprintf(`
 if [ "$1" = "--files" ]; then
-  printf '%%s\0' '/repo/src/router.go' '/repo/src/other.go'
+  printf '%%s\0' '/repo/src/Router.go' '/repo/src/other.go'
   exit 0
 fi
 printf '%%s\n' "$@" > %q
-printf '%%s\n' '{"type":"match","data":{"path":{"text":"/repo/src/router.go"},"lines":{"text":"foo\\n"},"line_number":1,"submatches":[]}}'
+printf '%%s\n' '{"type":"match","data":{"path":{"text":"/repo/src/Router.go"},"lines":{"text":"foo\\n"},"line_number":1,"submatches":[]}}'
 `, argsPath)
 	runner := Runner{Binary: writeFakeRG(t, script)}
 
@@ -184,7 +184,7 @@ printf '%%s\n' '{"type":"match","data":{"path":{"text":"/repo/src/router.go"},"l
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
-	if len(result.Matches) != 1 || result.Matches[0].Path != "/repo/src/router.go" {
+	if len(result.Matches) != 1 || result.Matches[0].Path != "/repo/src/Router.go" {
 		t.Fatalf("matches = %#v, want router content match", result.Matches)
 	}
 	args, err := os.ReadFile(argsPath)
@@ -192,7 +192,7 @@ printf '%%s\n' '{"type":"match","data":{"path":{"text":"/repo/src/router.go"},"l
 		t.Fatalf("read args: %v", err)
 	}
 	argText := string(args)
-	if !strings.Contains(argText, "/repo/src/router.go") || strings.Contains(argText, "/repo/src/other.go") {
+	if !strings.Contains(argText, "/repo/src/Router.go") || strings.Contains(argText, "/repo/src/other.go") {
 		t.Fatalf("content args = %q, want only filtered file", argText)
 	}
 }

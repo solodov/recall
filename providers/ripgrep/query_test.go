@@ -43,6 +43,16 @@ func TestParseQueryIncludesPathFilters(t *testing.T) {
 	}
 }
 
+func TestPathFiltersAreCaseInsensitive(t *testing.T) {
+	pattern, err := compilePathPattern("router")
+	if err != nil {
+		t.Fatalf("compilePathPattern returned error: %v", err)
+	}
+	if !pattern.MatchString("Source/Router.go") {
+		t.Fatal("path filter did not match path case-insensitively")
+	}
+}
+
 func TestParseQueryIncludesFileTypes(t *testing.T) {
 	query, err := ParseQuery("foo type:go type:ts -in:test")
 	if err != nil {
