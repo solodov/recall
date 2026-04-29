@@ -324,9 +324,6 @@ func recallOpenURL(providerID string, kind string, target *searchv1.OpenTarget) 
 	} else if uriTarget := target.GetUri(); uriTarget != nil {
 		values.Set("type", "uri")
 		values.Set("uri", uriTarget.GetUri())
-		if parsed, err := url.Parse(uriTarget.GetUri()); err == nil && parsed.Scheme != "" {
-			values.Set("scheme", parsed.Scheme)
-		}
 	} else {
 		return ""
 	}

@@ -61,6 +61,19 @@ func TestOpenFallsBackWhenNoConfiguredOpenerMatches(t *testing.T) {
 	}
 }
 
+func TestOpenFallsBackWithExactOriginalURI(t *testing.T) {
+	runner := &recordingRunner{}
+	rawURI := "org-protocol:/roam-node?node=89808715-6315-4484-B726-DFC9F4F2345D"
+
+	err := Open(context.Background(), &configv1.RecallConfig{}, "recall://open?v=1&type=uri&uri=org-protocol%3A%2Froam-node%3Fnode%3D89808715-6315-4484-B726-DFC9F4F2345D", Options{Runner: runner.Run, FallbackCommand: "fallback-open"})
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	if runner.command != "fallback-open" || !reflect.DeepEqual(runner.args, []string{rawURI}) {
+		t.Fatalf("fallback runner = %q %#v", runner.command, runner.args)
+	}
+}
+
 func TestOpenSkipsOpenerWithMissingPlaceholder(t *testing.T) {
 	cfg := &configv1.RecallConfig{Openers: []*configv1.Opener{{
 		Id:          "needs-line",

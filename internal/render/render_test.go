@@ -107,6 +107,17 @@ func TestWriteHumanGroupedOmitsCodeFileURIFromGroupHeader(t *testing.T) {
 	}
 }
 
+func TestRecallOpenURLDoesNotDuplicateURIScheme(t *testing.T) {
+	openURL := recallOpenURL("notes", "org_node", uriTarget("org-protocol:/roam-node?node=89808715-6315-4484-B726-DFC9F4F2345D"))
+
+	if strings.Contains(openURL, "scheme=") {
+		t.Fatalf("recall URL %q contains redundant scheme query parameter", openURL)
+	}
+	if !strings.Contains(openURL, "uri=org-protocol%3A%2Froam-node%3Fnode%3D89808715-6315-4484-B726-DFC9F4F2345D") {
+		t.Fatalf("recall URL %q does not preserve encoded original URI", openURL)
+	}
+}
+
 func TestWriteJSONPreservesProviderResponsesAndFailures(t *testing.T) {
 	var output bytes.Buffer
 	result := renderFixtureResult()
