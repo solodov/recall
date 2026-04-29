@@ -53,6 +53,14 @@ type Options struct {
 	Logger          *slog.Logger
 }
 
+type openerCandidate struct {
+	valid       bool
+	openerID    string
+	command     string
+	args        []string
+	specificity int
+}
+
 // ParseRecallURL decodes the recall:// URL emitted by terminal human output.
 func ParseRecallURL(raw string) (Target, error) {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
@@ -103,8 +111,10 @@ func ParseRecallURL(raw string) (Target, error) {
 	return target, nil
 }
 
-// Open chooses a configured opener for targetURL and executes it. If no opener
-// matches, it falls back to the platform open command with the original target.
+// Open chooses the most specific configured opener for targetURL and executes
+// it. Generic openers act as defaults while source/kind-specific openers can
+// override them; if no opener matches, recall falls back to the platform open
+// command with the original target.
 func Open(ctx context.Context, cfg *configv1.RecallConfig, targetURL string, options Options) error {
 	target, err := ParseRecallURL(targetURL)
 	if err != nil {
@@ -115,6 +125,7 @@ func Open(ctx context.Context, cfg *configv1.RecallConfig, targetURL string, opt
 		runner = runCommand
 	}
 
+	var selected openerCandidate
 	for _, opener := range cfg.GetOpeners() {
 		if !matchesOpener(opener, target) {
 			continue
@@ -130,7 +141,19 @@ func Open(ctx context.Context, cfg *configv1.RecallConfig, targetURL string, opt
 		if command == "" {
 			return fmt.Errorf("opener %q command is empty", opener.GetId())
 		}
-		return runAndLog(ctx, runner, options.Logger, targetURL, target, command, args, opener.GetId(), false)
+		candidate := openerCandidate{
+			valid:       true,
+			openerID:    opener.GetId(),
+			command:     command,
+			args:        args,
+			specificity: openerSpecificity(opener),
+		}
+		if !selected.valid || candidate.specificity > selected.specificity {
+			selected = candidate
+		}
+	}
+	if selected.valid {
+		return runAndLog(ctx, runner, options.Logger, targetURL, target, selected.command, selected.args, selected.openerID, false)
 	}
 
 	command, args := fallbackInvocation(target, options)
@@ -213,6 +236,26 @@ func matchesOpener(opener *configv1.Opener, target Target) bool {
 		matchesFilter(opener.GetKinds(), target.Kind) &&
 		matchesFilter(opener.GetTargetTypes(), target.Type) &&
 		matchesFilter(opener.GetUriSchemes(), target.URIScheme)
+}
+
+func openerSpecificity(opener *configv1.Opener) int {
+	if opener == nil {
+		return 0
+	}
+	specificity := 0
+	if len(opener.GetSources()) > 0 {
+		specificity++
+	}
+	if len(opener.GetKinds()) > 0 {
+		specificity++
+	}
+	if len(opener.GetTargetTypes()) > 0 {
+		specificity++
+	}
+	if len(opener.GetUriSchemes()) > 0 {
+		specificity++
+	}
+	return specificity
 }
 
 func matchesFilter(values []string, actual string) bool {

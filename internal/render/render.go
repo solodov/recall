@@ -156,7 +156,7 @@ func linkedGroupTitle(providerID string, group groupedHits) string {
 func linkedGroupHeaderLabel(providerID string, group groupedHits, configTargets map[string]*searchv1.OpenTarget) string {
 	label := "[" + groupHeaderLabel(providerID, group) + "]"
 	if target := configTargets[providerID]; target != nil {
-		return terminalLink(label, recallOpenURL(providerID, providerConfigKind, target))
+		return terminalLink(label, recallOpenURL(providerID, commonGroupKind(group), target))
 	}
 	return label
 }
@@ -348,10 +348,7 @@ func synthesizeRawResponse(response orchestrator.ProviderResponse) *searchv1.Sea
 	return raw
 }
 
-const (
-	codeMatchKind      = "code_match"
-	providerConfigKind = "provider_config"
-)
+const codeMatchKind = "code_match"
 
 type groupedHits struct {
 	key     string

@@ -11,12 +11,18 @@ providers {
   }
 }
 
-# Optional: open grouped source labels at this provider block in your editor.
+# Optional: open every file target, including source-label config links, in your editor.
 openers {
-  id: "provider-config-editor"
-  kinds: "provider_config"
+  id: "file-editor-location"
   target_types: "file"
   command: "editor"
   args: "+{line}:{column}"
+  args: "{path}"
+}
+
+openers {
+  id: "file-editor"
+  target_types: "file"
+  command: "editor"
   args: "{path}"
 }

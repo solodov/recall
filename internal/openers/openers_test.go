@@ -24,8 +24,14 @@ func TestParseRecallURLDecodesFileTarget(t *testing.T) {
 	}
 }
 
-func TestOpenUsesFirstMatchingConfiguredOpener(t *testing.T) {
+func TestOpenPrefersSpecificOpenerOverGenericDefault(t *testing.T) {
 	cfg := &configv1.RecallConfig{Openers: []*configv1.Opener{
+		{
+			Id:          "file-default",
+			TargetTypes: []string{TargetTypeFile},
+			Command:     "default-editor",
+			Args:        []string{"+{line}:{column}", "{path}"},
+		},
 		{
 			Id:          "web",
 			TargetTypes: []string{TargetTypeURI},
@@ -49,6 +55,24 @@ func TestOpenUsesFirstMatchingConfiguredOpener(t *testing.T) {
 	}
 	if runner.command != "editor" || !reflect.DeepEqual(runner.args, []string{"+call cursor(12, 4)", "/workspace/main.kt"}) {
 		t.Fatalf("runner = %q %#v", runner.command, runner.args)
+	}
+}
+
+func TestOpenUsesGenericFileOpenerAsDefault(t *testing.T) {
+	cfg := &configv1.RecallConfig{Openers: []*configv1.Opener{{
+		Id:          "file-default",
+		TargetTypes: []string{TargetTypeFile},
+		Command:     "editor",
+		Args:        []string{"--no-wait", "+{line}:{column}", "{path}"},
+	}}}
+	runner := &recordingRunner{}
+
+	err := Open(context.Background(), cfg, "recall://open?v=1&source=org&kind=org_entry&type=file&path=%2Fworkspace%2Fconfig.txtpb&line=14&column=1", Options{Runner: runner.Run})
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	if runner.command != "editor" || !reflect.DeepEqual(runner.args, []string{"--no-wait", "+14:1", "/workspace/config.txtpb"}) {
+		t.Fatalf("runner = %q %#v, want generic file opener", runner.command, runner.args)
 	}
 }
 
@@ -92,6 +116,32 @@ func TestOpenSkipsOpenerWithMissingPlaceholder(t *testing.T) {
 	}
 	if runner.command != "fallback-open" || !reflect.DeepEqual(runner.args, []string{"/workspace/main.kt"}) {
 		t.Fatalf("fallback runner = %q %#v", runner.command, runner.args)
+	}
+}
+
+func TestOpenFallsThroughToPlainFileOpenerWhenLocationIsMissing(t *testing.T) {
+	cfg := &configv1.RecallConfig{Openers: []*configv1.Opener{
+		{
+			Id:          "file-location",
+			TargetTypes: []string{TargetTypeFile},
+			Command:     "editor",
+			Args:        []string{"+{line}:{column}", "{path}"},
+		},
+		{
+			Id:          "file-default",
+			TargetTypes: []string{TargetTypeFile},
+			Command:     "editor",
+			Args:        []string{"{path}"},
+		},
+	}}
+	runner := &recordingRunner{}
+
+	err := Open(context.Background(), cfg, "recall://open?v=1&type=file&path=%2Fworkspace%2Fmain.kt", Options{Runner: runner.Run, FallbackCommand: "fallback-open"})
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	if runner.command != "editor" || !reflect.DeepEqual(runner.args, []string{"/workspace/main.kt"}) {
+		t.Fatalf("runner = %q %#v, want plain file opener", runner.command, runner.args)
 	}
 }
 

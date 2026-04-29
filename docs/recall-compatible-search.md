@@ -111,9 +111,11 @@ terminal helper can pass the URL to `recall-open`.
 `recall-open` loads the same registry and matches optional `openers` by source,
 kind, target type, and URI scheme. Opener commands are local operator config and
 are executed without a shell; if no opener matches, `recall-open` falls back to
-the platform opener on the original path or URI. Grouped source labels link back
-to the provider block in the loaded registry with recall-owned kind
-`provider_config`, so one opener can handle config inspection across providers.
+the platform opener on the original path or URI. A generic `target_types: "file"`
+opener can act as the default editor for every file link, including grouped
+source labels that link back to the provider block in the loaded registry.
+Source- or kind-specific openers remain supported and override generic defaults
+when both match.
 
 ## Future sources
 
