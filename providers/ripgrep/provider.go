@@ -75,7 +75,9 @@ func (provider *Provider) Search(ctx context.Context, request *searchv1.SearchRe
 	if err != nil {
 		return nil, err
 	}
-	return MatchesToSearchResponse(result.Matches, resolution.Warnings, HitOptions{Roots: resolution.Roots}), nil
+	warnings := append([]*searchv1.Warning{}, resolution.Warnings...)
+	warnings = append(warnings, result.Warnings...)
+	return MatchesToSearchResponse(result.Matches, warnings, HitOptions{Roots: resolution.Roots}), nil
 }
 
 func (provider *Provider) resolveRoots() (RootResolution, error) {

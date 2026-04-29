@@ -15,6 +15,8 @@ import (
 const (
 	// WarningRootMissing identifies a configured ripgrep root that does not exist.
 	WarningRootMissing = "ripgrep_root_missing"
+	// WarningPathMissing identifies a missing path discovered during ripgrep traversal.
+	WarningPathMissing = "ripgrep_path_missing"
 )
 
 // RootResolver validates configured roots at search time so stale optional

@@ -110,6 +110,23 @@ func TestProviderSearchWithoutLimitReturnsAllRunnerMatches(t *testing.T) {
 	}
 }
 
+func TestProviderSearchPreservesRunnerWarnings(t *testing.T) {
+	root := t.TempDir()
+	runner := &recordingRunner{result: RunResult{Warnings: []*searchv1.Warning{{
+		Message: "rg: /workspace/codebase/.cache: No such file or directory (os error 2)",
+		Code:    proto.String(WarningPathMissing),
+	}}}}
+	provider := New(Options{Roots: []string{root}, Runner: runner})
+
+	response, err := provider.Search(context.Background(), &searchv1.SearchRequest{Query: "foo"})
+	if err != nil {
+		t.Fatalf("Search returned error: %v", err)
+	}
+	if len(response.GetWarnings()) != 1 || response.GetWarnings()[0].GetCode() != WarningPathMissing {
+		t.Fatalf("warnings = %#v, want runner warning", response.GetWarnings())
+	}
+}
+
 func TestProviderServesThroughSDKWithTextproto(t *testing.T) {
 	root := t.TempDir()
 	runner := &recordingRunner{result: RunResult{Matches: []Match{{

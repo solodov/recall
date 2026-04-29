@@ -129,6 +129,26 @@ func TestRunnerTreatsExitCodeOneAsNoMatches(t *testing.T) {
 	}
 }
 
+func TestRunnerDowngradesMissingTraversalPathsToWarnings(t *testing.T) {
+	script := `
+printf '%s\n' '{"type":"match","data":{"path":{"text":"main.go"},"lines":{"text":"foo\\n"},"line_number":1,"submatches":[]}}'
+echo 'rg: /workspace/codebase/.cache: No such file or directory (os error 2)' >&2
+exit 2
+`
+	runner := Runner{Binary: writeFakeRG(t, script)}
+
+	result, err := runner.Run(context.Background(), RunOptions{Pattern: "foo", Roots: []string{"/repo"}})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if len(result.Matches) != 1 || result.Matches[0].Path != "main.go" {
+		t.Fatalf("matches = %#v, want parsed match", result.Matches)
+	}
+	if len(result.Warnings) != 1 || result.Warnings[0].GetCode() != WarningPathMissing || !strings.Contains(result.Warnings[0].GetMessage(), "/workspace/codebase/.cache") {
+		t.Fatalf("warnings = %#v, want missing path warning", result.Warnings)
+	}
+}
+
 func TestRunnerReturnsRipgrepStderrForOtherFailures(t *testing.T) {
 	runner := Runner{Binary: writeFakeRG(t, "echo 'bad pattern' >&2\nexit 2\n")}
 

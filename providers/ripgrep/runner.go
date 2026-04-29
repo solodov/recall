@@ -9,6 +9,10 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+
+	searchv1 "github.com/solodov/recall/proto/recall/search/v1"
+
+	"google.golang.org/protobuf/proto"
 )
 
 const defaultRipgrepBinary = "rg"
@@ -23,9 +27,10 @@ type RunOptions struct {
 	Limit          int
 }
 
-// RunResult contains structured ripgrep match events.
+// RunResult contains structured ripgrep match events and non-fatal diagnostics.
 type RunResult struct {
-	Matches []Match
+	Matches  []Match
+	Warnings []*searchv1.Warning
 }
 
 // Match is the provider-owned representation of one ripgrep JSON match event.
@@ -143,6 +148,9 @@ func (runner Runner) Run(ctx context.Context, options RunOptions) (RunResult, er
 		if exitCode(waitErr) == 1 {
 			return RunResult{Matches: nil}, nil
 		}
+		if warnings, ok := missingPathWarnings(stderr.String()); ok {
+			return RunResult{Matches: matches, Warnings: warnings}, nil
+		}
 		return RunResult{}, fmt.Errorf("ripgrep failed: %w%s", waitErr, stderrSuffix(stderr.String()))
 	}
 	return RunResult{Matches: matches}, nil
@@ -216,6 +224,28 @@ func (event ripgrepEvent) toMatch() (Match, error) {
 		})
 	}
 	return match, nil
+}
+
+func missingPathWarnings(stderr string) ([]*searchv1.Warning, bool) {
+	var warnings []*searchv1.Warning
+	for _, line := range strings.Split(stderr, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if !isMissingPathDiagnostic(line) {
+			return nil, false
+		}
+		warnings = append(warnings, &searchv1.Warning{
+			Message: line,
+			Code:    proto.String(WarningPathMissing),
+		})
+	}
+	return warnings, len(warnings) > 0
+}
+
+func isMissingPathDiagnostic(line string) bool {
+	return strings.HasPrefix(line, "rg: ") && strings.Contains(line, ": No such file or directory (os error 2)")
 }
 
 func exitCode(err error) int {
