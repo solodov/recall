@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package recall.search.v1;
 
-option go_package = "recall/proto/recall/search/v1;searchv1";
+option go_package = "github.com/solodov/recall/proto/recall/search/v1;searchv1";
 
 import "google/protobuf/timestamp.proto";
 

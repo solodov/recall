@@ -458,7 +458,7 @@ const file_proto_recall_search_v1_search_proto_rawDesc = "" +
 	"\x04code\x18\x02 \x01(\tH\x00R\x04code\x88\x01\x01B\a\n" +
 	"\x05_code2]\n" +
 	"\x0eSearchProvider\x12K\n" +
-	"\x06Search\x12\x1f.recall.search.v1.SearchRequest\x1a .recall.search.v1.SearchResponseB(Z&recall/proto/recall/search/v1;searchv1b\x06proto3"
+	"\x06Search\x12\x1f.recall.search.v1.SearchRequest\x1a .recall.search.v1.SearchResponseB;Z9github.com/solodov/recall/proto/recall/search/v1;searchv1b\x06proto3"
 
 var (
 	file_proto_recall_search_v1_search_proto_rawDescOnce sync.Once

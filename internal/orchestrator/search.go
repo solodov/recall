@@ -8,12 +8,12 @@ import (
 	"strings"
 	"sync"
 
-	"recall/internal/normalize"
-	"recall/internal/rank"
-	"recall/internal/runtime"
-	"recall/internal/searchclient"
-	configv1 "recall/proto/recall/config/v1"
-	searchv1 "recall/proto/recall/search/v1"
+	"github.com/solodov/recall/internal/normalize"
+	"github.com/solodov/recall/internal/rank"
+	"github.com/solodov/recall/internal/runtime"
+	"github.com/solodov/recall/internal/searchclient"
+	configv1 "github.com/solodov/recall/proto/recall/config/v1"
+	searchv1 "github.com/solodov/recall/proto/recall/search/v1"
 
 	"google.golang.org/protobuf/proto"
 )

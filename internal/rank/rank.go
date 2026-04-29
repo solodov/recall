@@ -5,7 +5,7 @@ import (
 	"math"
 	"sort"
 
-	"recall/internal/normalize"
+	"github.com/solodov/recall/internal/normalize"
 )
 
 const (

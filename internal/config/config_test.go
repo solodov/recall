@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	configv1 "recall/proto/recall/config/v1"
+	configv1 "github.com/solodov/recall/proto/recall/config/v1"
 )
 
 func TestDefaultPathUsesXDGConfigHome(t *testing.T) {

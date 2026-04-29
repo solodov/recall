@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	configv1 "recall/proto/recall/config/v1"
-	searchv1 "recall/proto/recall/search/v1"
+	configv1 "github.com/solodov/recall/proto/recall/config/v1"
+	searchv1 "github.com/solodov/recall/proto/recall/search/v1"
 
 	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/proto"

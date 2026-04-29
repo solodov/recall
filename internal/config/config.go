@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	configv1 "recall/proto/recall/config/v1"
+	configv1 "github.com/solodov/recall/proto/recall/config/v1"
 
 	"google.golang.org/protobuf/encoding/prototext"
 )

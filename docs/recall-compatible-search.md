@@ -30,7 +30,8 @@ The raw query is intentionally provider-owned. Bash history, calendar, Gmail,
 local notes, and other future providers can each map the same query text to the
 search semantics that make sense for that source. Recall-level flags such as
 `--source`, `--kind`, and `--grouped` remain orchestration or presentation
-controls and are not added to `SearchRequest`. When `limit` is absent, providers should return every reasonable match.
+controls and are not added to `SearchRequest`. When `limit` is absent,
+providers should return every reasonable match.
 
 Provider responses should return best-first hits with stable IDs, kinds, titles,
 named URIs, optional groups, optional source-domain timestamps, optional native
@@ -72,6 +73,33 @@ Add `limit` only when you want to cap provider-local results:
 printf 'query: "deploy"\nlimit: 10\n' |
   recall-example-provider /recall.search.v1.SearchProvider/Search
 ```
+
+## Go provider SDK
+
+Go providers should import the public SDK instead of `internal` packages:
+
+```go
+import (
+	"context"
+
+	recallprovider "github.com/solodov/recall/provider"
+	searchv1 "github.com/solodov/recall/proto/recall/search/v1"
+)
+
+type Provider struct{}
+
+func (Provider) Search(ctx context.Context, request *searchv1.SearchRequest) (*searchv1.SearchResponse, error) {
+	return &searchv1.SearchResponse{}, nil
+}
+
+func main() {
+	_ = recallprovider.ServeSearch(context.Background(), Provider{})
+}
+```
+
+The SDK serves one `/recall.search.v1.SearchProvider/Search` stdio call,
+auto-detects binary protobuf or textproto input, mirrors the response format,
+and provides `RequestedLimit` for optional limit handling.
 
 ## Future sources
 

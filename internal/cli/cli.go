@@ -9,11 +9,11 @@ import (
 	"io"
 	"strings"
 
-	"recall/internal/config"
-	"recall/internal/orchestrator"
-	"recall/internal/render"
-	"recall/internal/runtime"
-	configv1 "recall/proto/recall/config/v1"
+	"github.com/solodov/recall/internal/config"
+	"github.com/solodov/recall/internal/orchestrator"
+	"github.com/solodov/recall/internal/render"
+	"github.com/solodov/recall/internal/runtime"
+	configv1 "github.com/solodov/recall/proto/recall/config/v1"
 )
 
 // ConfigLoader loads the operator-owned provider registry for a recall run.

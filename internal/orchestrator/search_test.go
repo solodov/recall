@@ -5,10 +5,10 @@ import (
 	"errors"
 	"testing"
 
-	"recall/internal/runtime"
-	"recall/internal/searchclient"
-	configv1 "recall/proto/recall/config/v1"
-	searchv1 "recall/proto/recall/search/v1"
+	"github.com/solodov/recall/internal/runtime"
+	"github.com/solodov/recall/internal/searchclient"
+	configv1 "github.com/solodov/recall/proto/recall/config/v1"
+	searchv1 "github.com/solodov/recall/proto/recall/search/v1"
 )
 
 func TestSearchSelectsEnabledProvidersAndBuildsRequests(t *testing.T) {

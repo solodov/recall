@@ -41,6 +41,42 @@ For the built-in search contract, that path is:
 
 Providers auto-detect whether stdin is protobuf binary or textproto, then mirror the same format on stdout. `recall` uses protobuf binary for normal provider calls; humans can pipe textproto directly for debugging.
 
+## Build a Go provider
+
+Go provider binaries can use the public SDK package:
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+
+	recallprovider "github.com/solodov/recall/provider"
+	searchv1 "github.com/solodov/recall/proto/recall/search/v1"
+)
+
+type Provider struct{}
+
+func (Provider) Search(ctx context.Context, request *searchv1.SearchRequest) (*searchv1.SearchResponse, error) {
+	hits := []*searchv1.SearchHit{{Id: "example:1", Kind: "note", Title: request.GetQuery()}}
+	if limit, ok := recallprovider.RequestedLimit(request); ok && len(hits) > limit {
+		hits = hits[:limit]
+	}
+	return &searchv1.SearchResponse{Hits: hits}, nil
+}
+
+func main() {
+	if err := recallprovider.ServeSearch(context.Background(), Provider{}); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+```
+
+The SDK handles the stdio RPC path, stdin format auto-detection, mirrored stdout encoding, and dispatch to `Search`.
+
 ## Run the example
 
 The example script builds `recall` and the example provider, writes a temporary config that points at the built provider, and runs a search:

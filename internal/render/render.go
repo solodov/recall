@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"recall/internal/normalize"
-	"recall/internal/orchestrator"
-	searchv1 "recall/proto/recall/search/v1"
+	"github.com/solodov/recall/internal/normalize"
+	"github.com/solodov/recall/internal/orchestrator"
+	searchv1 "github.com/solodov/recall/proto/recall/search/v1"
 
 	"google.golang.org/protobuf/encoding/protojson"
 )

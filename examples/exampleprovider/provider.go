@@ -10,9 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"recall/internal/searchclient"
-	"recall/internal/stdiorpc"
-	searchv1 "recall/proto/recall/search/v1"
+	searchv1 "github.com/solodov/recall/proto/recall/search/v1"
+	recallprovider "github.com/solodov/recall/provider"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -31,29 +30,11 @@ func New() *Provider {
 
 // Serve handles exactly one recall stdio RPC call for the example provider.
 func (provider *Provider) Serve(ctx context.Context, stdin io.Reader, stdout io.Writer, args []string) error {
-	return stdiorpc.ServeOne(ctx, stdiorpc.ServeOptions{
-		Stdin:    stdin,
-		Stdout:   stdout,
-		Args:     args,
-		Handlers: provider.Handlers(),
+	return recallprovider.ServeSearchWithOptions(ctx, provider, recallprovider.ServeOptions{
+		Stdin:  stdin,
+		Stdout: stdout,
+		Args:   args,
 	})
-}
-
-// Handlers exposes the SearchProvider.Search stdio RPC method served by the
-// example provider.
-func (provider *Provider) Handlers() map[stdiorpc.MethodKey]stdiorpc.UnaryHandler {
-	return map[stdiorpc.MethodKey]stdiorpc.UnaryHandler{
-		{Service: searchclient.SearchService, Method: searchclient.SearchMethod}: {
-			NewRequest: func() proto.Message { return &searchv1.SearchRequest{} },
-			Handle: func(ctx context.Context, message proto.Message) (proto.Message, error) {
-				request, ok := message.(*searchv1.SearchRequest)
-				if !ok {
-					return nil, fmt.Errorf("unexpected search request type %T", message)
-				}
-				return provider.Search(ctx, request)
-			},
-		},
-	}
 }
 
 // Search returns best-first fixture hits matching all query terms.
@@ -65,7 +46,7 @@ func (provider *Provider) Search(ctx context.Context, request *searchv1.SearchRe
 	if query == "" {
 		return nil, fmt.Errorf("query must be non-empty")
 	}
-	limit := int(request.GetLimit())
+	limit, _ := recallprovider.RequestedLimit(request)
 
 	terms := strings.Fields(strings.ToLower(query))
 	hits := make([]*searchv1.SearchHit, 0, len(provider.documents))

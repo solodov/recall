@@ -340,7 +340,7 @@ const file_proto_recall_config_v1_config_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"+\n" +
 	"\rGrpcTransport\x12\x1a\n" +
-	"\bendpoint\x18\x01 \x01(\tR\bendpointB(Z&recall/proto/recall/config/v1;configv1b\x06proto3"
+	"\bendpoint\x18\x01 \x01(\tR\bendpointB;Z9github.com/solodov/recall/proto/recall/config/v1;configv1b\x06proto3"
 
 var (
 	file_proto_recall_config_v1_config_proto_rawDescOnce sync.Once

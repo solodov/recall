@@ -9,8 +9,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"recall/internal/logging"
-	"recall/internal/perf"
+	"github.com/solodov/recall/internal/logging"
+	"github.com/solodov/recall/internal/perf"
 )
 
 var discardLogger = slog.New(slog.NewTextHandler(io.Discard, nil))

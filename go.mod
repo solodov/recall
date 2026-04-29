@@ -1,4 +1,4 @@
-module recall
+module github.com/solodov/recall
 
 go 1.26
 

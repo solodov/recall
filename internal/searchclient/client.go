@@ -9,18 +9,18 @@ import (
 	"strings"
 	"time"
 
-	"recall/internal/stdiorpc"
-	configv1 "recall/proto/recall/config/v1"
-	searchv1 "recall/proto/recall/search/v1"
+	"github.com/solodov/recall/internal/stdiorpc"
+	configv1 "github.com/solodov/recall/proto/recall/config/v1"
+	searchv1 "github.com/solodov/recall/proto/recall/search/v1"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
 const (
-	SearchService    = "recall.search.v1.SearchProvider"
-	SearchMethod     = "Search"
-	SearchFullMethod = "/recall.search.v1.SearchProvider/Search"
+	SearchService    = searchv1.SearchProviderService
+	SearchMethod     = searchv1.SearchProviderSearchMethod
+	SearchFullMethod = searchv1.SearchProviderSearchPath
 )
 
 // Client is the transport-independent boundary used by recall's orchestrator.

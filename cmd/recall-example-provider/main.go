@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"recall/internal/exampleprovider"
+	"github.com/solodov/recall/examples/exampleprovider"
 )
 
 func main() {

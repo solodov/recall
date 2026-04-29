@@ -3,8 +3,8 @@ package rank
 import (
 	"testing"
 
-	"recall/internal/normalize"
-	searchv1 "recall/proto/recall/search/v1"
+	"github.com/solodov/recall/internal/normalize"
+	searchv1 "github.com/solodov/recall/proto/recall/search/v1"
 
 	"google.golang.org/protobuf/proto"
 )

@@ -6,16 +6,14 @@ import (
 	"strings"
 	"testing"
 
-	"recall/internal/searchclient"
-	"recall/internal/stdiorpc"
-	searchv1 "recall/proto/recall/search/v1"
+	searchv1 "github.com/solodov/recall/proto/recall/search/v1"
 
 	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/proto"
 )
 
 func TestServeSearchBinaryExercisesContractFields(t *testing.T) {
-	stdout := serveOne(t, stdiorpc.PayloadFormatBinary, &searchv1.SearchRequest{Query: "deploy", Limit: proto.Uint32(5)})
+	stdout := serveOneBinary(t, &searchv1.SearchRequest{Query: "deploy", Limit: proto.Uint32(5)})
 
 	response := &searchv1.SearchResponse{}
 	if err := proto.Unmarshal(stdout, response); err != nil {
@@ -63,9 +61,9 @@ func TestSearchWithoutLimitReturnsEveryMatch(t *testing.T) {
 	}
 }
 
-func serveOne(t *testing.T, format stdiorpc.PayloadFormat, request proto.Message) []byte {
+func serveOneBinary(t *testing.T, request proto.Message) []byte {
 	t.Helper()
-	requestBytes, err := stdiorpc.MarshalPayload(format, request)
+	requestBytes, err := proto.Marshal(request)
 	if err != nil {
 		t.Fatalf("marshal request: %v", err)
 	}
@@ -80,11 +78,7 @@ func serveOne(t *testing.T, format stdiorpc.PayloadFormat, request proto.Message
 
 func searchPath(t *testing.T) string {
 	t.Helper()
-	path, err := (stdiorpc.MethodKey{Service: searchclient.SearchService, Method: searchclient.SearchMethod}).Path()
-	if err != nil {
-		t.Fatalf("Path returned error: %v", err)
-	}
-	return path
+	return searchv1.SearchProviderSearchPath
 }
 
 func assertExampleSearchResponse(t *testing.T, response *searchv1.SearchResponse) {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"recall/internal/cli"
+	"github.com/solodov/recall/internal/cli"
 )
 
 func main() {

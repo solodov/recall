@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package recall.config.v1;
 
-option go_package = "recall/proto/recall/config/v1;configv1";
+option go_package = "github.com/solodov/recall/proto/recall/config/v1;configv1";
 
 // RecallConfig is the operator-owned provider registry loaded by recall.
 message RecallConfig {

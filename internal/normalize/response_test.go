@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	searchv1 "recall/proto/recall/search/v1"
+	searchv1 "github.com/solodov/recall/proto/recall/search/v1"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
