@@ -102,7 +102,7 @@ func TestWriteHumanGroupedLinksSourceLabelToProviderConfig(t *testing.T) {
 	if !strings.Contains(stripOSC8(rawText), "[code:content] styleguide/kotlin/formatting.md") {
 		t.Fatalf("grouped output %q does not keep source label shape", rawText)
 	}
-	want := "recall://open?column=1&kind=code_match&line=17&path=%2Fworkspace%2Fconfig%2Frecall.txtpb&source=code&type=file&v=1\x1b\\[code:content]"
+	want := "recall://open?column=1&kind=provider_config&line=17&path=%2Fworkspace%2Fconfig%2Frecall.txtpb&source=code&type=file&v=1\x1b\\[code:content]"
 	if !strings.Contains(rawText, want) {
 		t.Fatalf("grouped output %q does not link source label to config target %q", rawText, want)
 	}

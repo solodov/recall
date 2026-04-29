@@ -118,7 +118,7 @@ providers {
 		t.Fatalf("provider count = %d, want config loaded from --config", providerCount)
 	}
 	wantPath := strings.ReplaceAll(configPath, "/", "%2F")
-	wantURL := "recall://open?column=1&kind=note&line=2&path=" + wantPath + "&source=configured&type=file&v=1"
+	wantURL := "recall://open?column=1&kind=provider_config&line=2&path=" + wantPath + "&source=configured&type=file&v=1"
 	if !strings.Contains(stdout.String(), wantURL) {
 		t.Fatalf("stdout %q does not contain config source link %q", stdout.String(), wantURL)
 	}

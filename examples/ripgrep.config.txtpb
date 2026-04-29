@@ -12,3 +12,13 @@ providers {
     args: "/path/to/repo"
   }
 }
+
+# Optional: open grouped source labels at this provider block in your editor.
+openers {
+  id: "provider-config-editor"
+  kinds: "provider_config"
+  target_types: "file"
+  command: "editor"
+  args: "+{line}:{column}"
+  args: "{path}"
+}
