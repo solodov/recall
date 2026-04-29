@@ -23,6 +23,11 @@ import (
 type HumanOptions struct {
 	// Ungrouped renders a flat result list for debugging or compatibility.
 	Ungrouped bool
+
+	// ProviderConfigTargets links grouped source labels back to provider registry
+	// blocks so operators can inspect the source behind a result without adding
+	// more terminal rows.
+	ProviderConfigTargets map[string]*searchv1.OpenTarget
 }
 
 // WriteHuman renders normalized results with compact terminal-oriented rules.
@@ -41,10 +46,10 @@ func WriteHuman(writer io.Writer, result *orchestrator.Result, options HumanOpti
 		}
 		return nil
 	}
-	return writeGroupedHuman(writer, result)
+	return writeGroupedHuman(writer, result, options)
 }
 
-func writeGroupedHuman(writer io.Writer, result *orchestrator.Result) error {
+func writeGroupedHuman(writer io.Writer, result *orchestrator.Result, options HumanOptions) error {
 	wroteGroup := false
 	for _, response := range result.Responses {
 		groups := groupHits(response.Hits)
@@ -52,7 +57,7 @@ func writeGroupedHuman(writer io.Writer, result *orchestrator.Result) error {
 			if wroteGroup {
 				fmt.Fprintln(writer)
 			}
-			fmt.Fprintf(writer, "[%s] %s\n", groupHeaderLabel(response.ProviderID, group), linkedGroupTitle(response.ProviderID, group))
+			fmt.Fprintf(writer, "%s %s\n", linkedGroupHeaderLabel(response.ProviderID, group, options.ProviderConfigTargets), linkedGroupTitle(response.ProviderID, group))
 			for _, hit := range group.hits {
 				writeGroupedHit(writer, response.ProviderID, group, hit)
 			}
@@ -146,6 +151,14 @@ func linkedGroupTitle(providerID string, group groupedHits) string {
 		return terminalLink(title, recallOpenURL(providerID, commonGroupKind(group), target))
 	}
 	return title
+}
+
+func linkedGroupHeaderLabel(providerID string, group groupedHits, configTargets map[string]*searchv1.OpenTarget) string {
+	label := "[" + groupHeaderLabel(providerID, group) + "]"
+	if target := configTargets[providerID]; target != nil {
+		return terminalLink(label, recallOpenURL(providerID, commonGroupKind(group), target))
+	}
+	return label
 }
 
 func groupHeaderLabel(providerID string, group groupedHits) string {

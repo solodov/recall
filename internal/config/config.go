@@ -26,6 +26,20 @@ var (
 	envNamePattern    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 )
 
+// LoadedConfig pairs a validated registry with source locations discovered from
+// the textproto file so terminal output can link sources back to their config.
+type LoadedConfig struct {
+	Config            *configv1.RecallConfig
+	ProviderLocations map[string]Location
+}
+
+// Location identifies a 1-based file position in an operator-owned config.
+type Location struct {
+	Path   string
+	Line   uint32
+	Column uint32
+}
+
 // DefaultPath returns the operator-owned registry path in the XDG config
 // hierarchy, falling back to $HOME/.config when XDG_CONFIG_HOME is unset.
 func DefaultPath() (string, error) {
@@ -42,32 +56,61 @@ func DefaultPath() (string, error) {
 
 // LoadDefault reads and validates the registry from the default XDG config path.
 func LoadDefault() (*configv1.RecallConfig, error) {
-	path, err := DefaultPath()
+	loaded, err := LoadDefaultWithLocations()
 	if err != nil {
 		return nil, err
 	}
-	return LoadFile(path)
+	return loaded.Config, nil
+}
+
+// LoadDefaultWithLocations reads the default registry and records provider block
+// positions when the textproto layout can be mapped back to parsed providers.
+func LoadDefaultWithLocations() (LoadedConfig, error) {
+	path, err := DefaultPath()
+	if err != nil {
+		return LoadedConfig{}, err
+	}
+	return LoadFileWithLocations(path)
 }
 
 // LoadFile reads a textproto provider registry and validates it before use.
 func LoadFile(path string) (*configv1.RecallConfig, error) {
+	loaded, err := LoadFileWithLocations(path)
+	if err != nil {
+		return nil, err
+	}
+	return loaded.Config, nil
+}
+
+// LoadFileWithLocations reads a textproto provider registry and keeps provider
+// block line numbers as best-effort UI metadata; config validity never depends
+// on source-location discovery.
+func LoadFileWithLocations(path string) (LoadedConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("recall config not found at %s; create %s before running recall", path, path)
+			return LoadedConfig{}, fmt.Errorf("recall config not found at %s; create %s before running recall", path, path)
 		}
-		return nil, fmt.Errorf("read recall config %s: %w", path, err)
+		return LoadedConfig{}, fmt.Errorf("read recall config %s: %w", path, err)
 	}
 
 	cfg := &configv1.RecallConfig{}
 	unmarshalOptions := prototext.UnmarshalOptions{DiscardUnknown: false}
 	if err := unmarshalOptions.Unmarshal(data, cfg); err != nil {
-		return nil, fmt.Errorf("parse recall config %s: %w", path, err)
+		return LoadedConfig{}, fmt.Errorf("parse recall config %s: %w", path, err)
 	}
 	if err := Validate(cfg); err != nil {
-		return nil, fmt.Errorf("validate recall config %s: %w", path, err)
+		return LoadedConfig{}, fmt.Errorf("validate recall config %s: %w", path, err)
 	}
-	return cfg, nil
+
+	locationPath := path
+	if absolutePath, err := filepath.Abs(path); err == nil {
+		locationPath = absolutePath
+	}
+	return LoadedConfig{
+		Config:            cfg,
+		ProviderLocations: locateProviderLocations(locationPath, data, cfg.GetProviders()),
+	}, nil
 }
 
 // Validate enforces registry semantics that protobuf shape alone cannot encode.
@@ -129,6 +172,146 @@ func Validate(cfg *configv1.RecallConfig) error {
 	}
 
 	return errors.Join(problems...)
+}
+
+func locateProviderLocations(path string, data []byte, providers []*configv1.Provider) map[string]Location {
+	startLines := messageFieldStartLines(data, "providers")
+	if len(startLines) == 0 {
+		return nil
+	}
+	locations := make(map[string]Location, len(providers))
+	for index, provider := range providers {
+		if provider == nil || index >= len(startLines) {
+			continue
+		}
+		id := strings.TrimSpace(provider.GetId())
+		if id == "" {
+			continue
+		}
+		locations[id] = Location{Path: path, Line: startLines[index], Column: 1}
+	}
+	return locations
+}
+
+func messageFieldStartLines(data []byte, field string) []uint32 {
+	tokens := scanTextprotoTokens(data)
+	lines := []uint32{}
+	for index, token := range tokens {
+		if token.value != field {
+			continue
+		}
+		next := index + 1
+		if next < len(tokens) && tokens[next].value == ":" {
+			next++
+		}
+		if next < len(tokens) && (tokens[next].value == "{" || tokens[next].value == "<") {
+			lines = append(lines, token.line)
+		}
+	}
+	return lines
+}
+
+type textprotoToken struct {
+	value string
+	line  uint32
+}
+
+func scanTextprotoTokens(data []byte) []textprotoToken {
+	tokens := []textprotoToken{}
+	line := uint32(1)
+	for index := 0; index < len(data); {
+		char := data[index]
+		switch {
+		case char == '\n':
+			line++
+			index++
+		case isTextprotoSpace(char):
+			index++
+		case char == '#':
+			index = skipLineComment(data, index)
+		case char == '/' && index+1 < len(data) && data[index+1] == '/':
+			index = skipLineComment(data, index+2)
+		case char == '/' && index+1 < len(data) && data[index+1] == '*':
+			var nextLine uint32
+			index, nextLine = skipBlockComment(data, index+2, line)
+			line = nextLine
+		case char == '"' || char == '\'':
+			var nextLine uint32
+			index, nextLine = skipQuotedString(data, index+1, char, line)
+			line = nextLine
+		case isTextprotoIdentStart(char):
+			start := index
+			startLine := line
+			index++
+			for index < len(data) && isTextprotoIdentPart(data[index]) {
+				index++
+			}
+			tokens = append(tokens, textprotoToken{value: string(data[start:index]), line: startLine})
+		case char == ':' || char == '{' || char == '}' || char == '<' || char == '>':
+			tokens = append(tokens, textprotoToken{value: string(char), line: line})
+			index++
+		default:
+			index++
+		}
+	}
+	return tokens
+}
+
+func skipLineComment(data []byte, index int) int {
+	for index < len(data) && data[index] != '\n' {
+		index++
+	}
+	return index
+}
+
+func skipBlockComment(data []byte, index int, line uint32) (int, uint32) {
+	for index < len(data) {
+		if data[index] == '\n' {
+			line++
+			index++
+			continue
+		}
+		if data[index] == '*' && index+1 < len(data) && data[index+1] == '/' {
+			return index + 2, line
+		}
+		index++
+	}
+	return index, line
+}
+
+func skipQuotedString(data []byte, index int, quote byte, line uint32) (int, uint32) {
+	escaped := false
+	for index < len(data) {
+		char := data[index]
+		if char == '\n' {
+			line++
+		}
+		index++
+		if escaped {
+			escaped = false
+			continue
+		}
+		if char == '\\' {
+			escaped = true
+			continue
+		}
+		if char == quote {
+			return index, line
+		}
+	}
+	return index, line
+}
+
+func isTextprotoSpace(char byte) bool {
+	return char == ' ' || char == '\t' || char == '\r' || char == '\f'
+}
+
+func isTextprotoIdentStart(char byte) bool {
+	return (char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') || char == '_'
+}
+
+func isTextprotoIdentPart(char byte) bool {
+	return isTextprotoIdentStart(char) || (char >= '0' && char <= '9')
 }
 
 func validateStdioTransport(location string, transport *configv1.StdioTransport) []error {

@@ -16,7 +16,9 @@ import (
 	"github.com/solodov/recall/internal/render"
 	"github.com/solodov/recall/internal/runtime"
 	configv1 "github.com/solodov/recall/proto/recall/config/v1"
+	searchv1 "github.com/solodov/recall/proto/recall/search/v1"
 	"github.com/spf13/cobra"
+	"google.golang.org/protobuf/proto"
 )
 
 // ConfigLoader loads the operator-owned provider registry for a recall run.
@@ -146,11 +148,11 @@ recall --config ./examples/config.txtpb sample`),
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if options.listSources {
-				cfg, err := app.loadConfig(options.configPath)
+				loaded, err := app.loadConfigWithLocations(options.configPath)
 				if err != nil {
 					return err
 				}
-				return renderProviders(stdout, cfg)
+				return renderProviders(stdout, loaded.Config)
 			}
 			return app.runSearch(cmd.Context(), stdout, stderr, *options, args)
 		},
@@ -229,14 +231,15 @@ func (app App) runSearch(ctx context.Context, stdout io.Writer, stderr io.Writer
 		span.End()
 	}()
 
-	var cfg *configv1.RecallConfig
+	var loaded config.LoadedConfig
 	if err := span.Measure("load_config", func() error {
 		var err error
-		cfg, err = app.loadConfig(options.configPath)
+		loaded, err = app.loadConfigWithLocations(options.configPath)
 		return err
 	}); err != nil {
 		return err
 	}
+	cfg := loaded.Config
 	var result *orchestrator.Result
 	searchErr := span.Measure("search", func() error {
 		var err error
@@ -257,7 +260,10 @@ func (app App) runSearch(ctx context.Context, stdout io.Writer, stderr io.Writer
 			case outputFormatJSON:
 				return render.WriteJSON(stdout, result)
 			case outputFormatHuman:
-				return render.WriteHuman(stdout, result, render.HumanOptions{Ungrouped: !options.grouped})
+				return render.WriteHuman(stdout, result, render.HumanOptions{
+					Ungrouped:             !options.grouped,
+					ProviderConfigTargets: providerConfigTargets(loaded.ProviderLocations),
+				})
 			}
 			return nil
 		}, "format", string(parsedFormat), "grouped", options.grouped)
@@ -295,13 +301,46 @@ func (app App) newRuntime(ctx context.Context, options RuntimeOptions) (runtime.
 }
 
 func (app App) loadConfig(configPath string) (*configv1.RecallConfig, error) {
+	loaded, err := app.loadConfigWithLocations(configPath)
+	if err != nil {
+		return nil, err
+	}
+	return loaded.Config, nil
+}
+
+func (app App) loadConfigWithLocations(configPath string) (config.LoadedConfig, error) {
 	if app.LoadConfig != nil {
-		return app.LoadConfig()
+		cfg, err := app.LoadConfig()
+		if err != nil {
+			return config.LoadedConfig{}, err
+		}
+		return config.LoadedConfig{Config: cfg}, nil
 	}
 	if strings.TrimSpace(configPath) != "" {
-		return config.LoadFile(configPath)
+		return config.LoadFileWithLocations(configPath)
 	}
-	return config.LoadDefault()
+	return config.LoadDefaultWithLocations()
+}
+
+func providerConfigTargets(locations map[string]config.Location) map[string]*searchv1.OpenTarget {
+	if len(locations) == 0 {
+		return nil
+	}
+	targets := make(map[string]*searchv1.OpenTarget, len(locations))
+	for providerID, location := range locations {
+		if strings.TrimSpace(location.Path) == "" {
+			continue
+		}
+		file := &searchv1.FileTarget{Path: location.Path}
+		if location.Line > 0 {
+			file.Line = proto.Uint32(location.Line)
+		}
+		if location.Column > 0 {
+			file.Column = proto.Uint32(location.Column)
+		}
+		targets[providerID] = &searchv1.OpenTarget{Target: &searchv1.OpenTarget_File{File: file}}
+	}
+	return targets
 }
 
 func renderProviders(writer io.Writer, cfg *configv1.RecallConfig) error {

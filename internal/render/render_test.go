@@ -88,6 +88,26 @@ func TestWriteHumanGroupedSuppressesGroupFileAction(t *testing.T) {
 	}
 }
 
+func TestWriteHumanGroupedLinksSourceLabelToProviderConfig(t *testing.T) {
+	var output bytes.Buffer
+	result := codeMatchResult()
+
+	if err := WriteHuman(&output, result, HumanOptions{ProviderConfigTargets: map[string]*searchv1.OpenTarget{
+		"code": fileTarget("/workspace/config/recall.txtpb", 17, 1),
+	}}); err != nil {
+		t.Fatalf("WriteHuman returned error: %v", err)
+	}
+
+	rawText := output.String()
+	if !strings.Contains(stripOSC8(rawText), "[code:content] styleguide/kotlin/formatting.md") {
+		t.Fatalf("grouped output %q does not keep source label shape", rawText)
+	}
+	want := "recall://open?column=1&kind=code_match&line=17&path=%2Fworkspace%2Fconfig%2Frecall.txtpb&source=code&type=file&v=1\x1b\\[code:content]"
+	if !strings.Contains(rawText, want) {
+		t.Fatalf("grouped output %q does not link source label to config target %q", rawText, want)
+	}
+}
+
 func TestWriteHumanGroupedRendersFileLinesWithLinkedSnippets(t *testing.T) {
 	var output bytes.Buffer
 	result := codeMatchResult()

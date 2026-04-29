@@ -88,14 +88,26 @@ providers {
 `), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
+	stdout := &bytes.Buffer{}
 	var providerCount int
 	app := App{
-		Stdout:     &bytes.Buffer{},
+		Stdout:     stdout,
 		Stderr:     &bytes.Buffer{},
 		NewRuntime: newTestRuntime,
 		Search: func(_ runtimepkg.Context, cfg *configv1.RecallConfig, _ string, _ orchestrator.Options) (*orchestrator.Result, error) {
 			providerCount = len(cfg.GetProviders())
-			return &orchestrator.Result{}, nil
+			return &orchestrator.Result{Responses: []orchestrator.ProviderResponse{{
+				ProviderID: "configured",
+				Hits: []normalize.Hit{{
+					ProviderID:   "configured",
+					ProviderRank: 1,
+					Hit: &searchv1.SearchHit{
+						Id:    "configured:1",
+						Kind:  "note",
+						Title: "Configured result",
+					},
+				}},
+			}}}, nil
 		},
 	}
 
@@ -104,6 +116,11 @@ providers {
 	}
 	if providerCount != 1 {
 		t.Fatalf("provider count = %d, want config loaded from --config", providerCount)
+	}
+	wantPath := strings.ReplaceAll(configPath, "/", "%2F")
+	wantURL := "recall://open?column=1&kind=note&line=2&path=" + wantPath + "&source=configured&type=file&v=1"
+	if !strings.Contains(stdout.String(), wantURL) {
+		t.Fatalf("stdout %q does not contain config source link %q", stdout.String(), wantURL)
 	}
 }
 

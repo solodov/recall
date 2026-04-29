@@ -101,6 +101,47 @@ openers {
 	}
 }
 
+func TestLoadFileWithLocationsRecordsProviderBlockLines(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.txtpb")
+	lines := []string{
+		"# synthetic registry",
+		"providers {",
+		`  id: "example"`,
+		"  enabled: true",
+		"  weight: 1.0",
+		"  timeout_ms: 1500",
+		"  default_limit: 30",
+		`  stdio { command: "provider" }`,
+		"}",
+		"",
+		"providers {",
+		`  id: "remote-source"`,
+		"  enabled: true",
+		"  weight: 1.0",
+		"  timeout_ms: 2500",
+		"  default_limit: 30",
+		`  grpc { endpoint: "dns:///source-search.internal:443" }`,
+		"}",
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	loaded, err := LoadFileWithLocations(path)
+	if err != nil {
+		t.Fatalf("LoadFileWithLocations returned error: %v", err)
+	}
+	if loaded.Config.GetProviders()[0].GetId() != "example" {
+		t.Fatalf("config did not parse providers: %#v", loaded.Config.GetProviders())
+	}
+	for id, wantLine := range map[string]uint32{"example": 2, "remote-source": 11} {
+		location := loaded.ProviderLocations[id]
+		if location.Path != path || location.Line != wantLine || location.Column != 1 {
+			t.Fatalf("location for %s = %#v, want path %q line %d column 1", id, location, path, wantLine)
+		}
+	}
+}
+
 func TestValidateRejectsProtocolOwnedFieldsBySchema(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.txtpb")
 	contents := `
