@@ -67,7 +67,7 @@ func TestRunLoadsConfigSearchesAndRendersResults(t *testing.T) {
 		t.Fatalf("kinds = %#v, want none", receivedOptions.Kinds)
 	}
 	output := stdout.String()
-	for _, want := range []string{"[example] Results", "  Example result", "    matched text"} {
+	for _, want := range []string{"[example:note] Results", "  Example result", "    matched text"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("stdout %q does not contain %q", output, want)
 		}

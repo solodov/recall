@@ -52,7 +52,7 @@ func writeGroupedHuman(writer io.Writer, result *orchestrator.Result) error {
 			if wroteGroup {
 				fmt.Fprintln(writer)
 			}
-			fmt.Fprintf(writer, "[%s] %s\n", response.ProviderID, linkedGroupTitle(response.ProviderID, group))
+			fmt.Fprintf(writer, "[%s] %s\n", groupHeaderLabel(response.ProviderID, group), linkedGroupTitle(response.ProviderID, group))
 			for _, hit := range group.hits {
 				writeGroupedHit(writer, response.ProviderID, group, hit)
 			}
@@ -146,6 +146,24 @@ func linkedGroupTitle(providerID string, group groupedHits) string {
 		return terminalLink(title, recallOpenURL(providerID, commonGroupKind(group), target))
 	}
 	return title
+}
+
+func groupHeaderLabel(providerID string, group groupedHits) string {
+	if kind := commonGroupKind(group); kind != "" {
+		return providerID + ":" + displayKind(kind)
+	}
+	return providerID
+}
+
+func displayKind(kind string) string {
+	switch kind {
+	case codeMatchKind:
+		return "content"
+	case "path_match":
+		return "path"
+	default:
+		return kind
+	}
 }
 
 func commonGroupKind(group groupedHits) string {

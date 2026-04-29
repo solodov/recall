@@ -26,11 +26,11 @@ func TestWriteHumanDefaultsToGroupedTerminalLayout(t *testing.T) {
 	rawText := output.String()
 	text := stripOSC8(rawText)
 	for _, want := range []string{
-		"[example] Procedure notes",
+		"[example:note] Procedure notes",
 		"  Sample rollout note 2026-04-28T09:30:00Z",
 		"    matched rollout context",
 		"    actions: https file",
-		"[example] Results",
+		"[example:note] Results",
 		"  Loose hit",
 		"[example] warning: fixture warning",
 	} {
@@ -78,7 +78,7 @@ func TestWriteHumanGroupedSuppressesGroupFileAction(t *testing.T) {
 	}
 
 	text := stripOSC8(output.String())
-	for _, want := range []string{"[org] notes.org", "  Matched org entry"} {
+	for _, want := range []string{"[org:org_entry] notes.org", "  Matched org entry"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("grouped org output %q does not contain %q", text, want)
 		}
@@ -99,7 +99,7 @@ func TestWriteHumanGroupedRendersFileLinesWithLinkedSnippets(t *testing.T) {
 	rawText := output.String()
 	text := stripOSC8(rawText)
 	for _, want := range []string{
-		"[code] styleguide/kotlin/formatting.md",
+		"[code:content] styleguide/kotlin/formatting.md",
 		"     51: fun createSampleItem(flavor: Flavor): SampleItem = when(flavor) {",
 	} {
 		if !strings.Contains(text, want) {
