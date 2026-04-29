@@ -67,7 +67,7 @@ func TestRunLoadsConfigSearchesAndRendersResults(t *testing.T) {
 		t.Fatalf("kinds = %#v, want none", receivedOptions.Kinds)
 	}
 	output := stdout.String()
-	for _, want := range []string{"[example] Example result (note)", "matched text"} {
+	for _, want := range []string{"[example] Results", "  Example result", "    matched text"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("stdout %q does not contain %q", output, want)
 		}
@@ -228,7 +228,7 @@ func TestRunHelpShowsExamplesAndProviderListing(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 	output := stdout.String()
-	for _, want := range []string{"recall searches configured personal-search providers", "code, notes, calendars", "Source vs kind:", "--source/-s selects", "--kind filters", "Examples:", "recall -ls", "-s code", "--source code -g", "-f json", "-l 20", "--list-sources", "alias: -ls", "-g, --grouped"} {
+	for _, want := range []string{"recall searches configured personal-search providers", "code, notes, calendars", "Source vs kind:", "--source/-s selects", "--kind filters", "Examples:", "recall -ls", "-s code", "--source code", "-f json", "-l 20", "--list-sources", "alias: -ls", "-g, --grouped", "default; use --grouped=false"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("help output %q does not contain %q", output, want)
 		}

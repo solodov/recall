@@ -15,7 +15,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func TestWriteHumanRendersOpenTargetsMetadataAndWarnings(t *testing.T) {
+func TestWriteHumanDefaultsToGroupedTerminalLayout(t *testing.T) {
 	var output bytes.Buffer
 	result := renderFixtureResult()
 
@@ -26,13 +26,21 @@ func TestWriteHumanRendersOpenTargetsMetadataAndWarnings(t *testing.T) {
 	rawText := output.String()
 	text := stripOSC8(rawText)
 	for _, want := range []string{
-		"[example] Sample rollout note (note) 2026-04-28T09:30:00Z",
-		"matched rollout context",
-		"actions: https file",
+		"[example] Procedure notes",
+		"  Sample rollout note 2026-04-28T09:30:00Z",
+		"    matched rollout context",
+		"    actions: https file",
+		"[example] Results",
+		"  Loose hit",
 		"[example] warning: fixture warning",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("human output %q does not contain %q", text, want)
+		}
+	}
+	for _, unwanted := range []string{"# example", "## Procedure notes", "(note)"} {
+		if strings.Contains(text, unwanted) {
+			t.Fatalf("human output %q contains terminal noise %q", text, unwanted)
 		}
 	}
 	if !strings.Contains(rawText, "recall://open?") || !strings.Contains(rawText, "type=file") {
@@ -40,33 +48,83 @@ func TestWriteHumanRendersOpenTargetsMetadataAndWarnings(t *testing.T) {
 	}
 }
 
-func TestWriteHumanGroupedUsesSourceAndProviderGroups(t *testing.T) {
+func TestWriteHumanUngroupedRendersOpenTargetsMetadataAndWarnings(t *testing.T) {
 	var output bytes.Buffer
 	result := renderFixtureResult()
 
-	if err := WriteHuman(&output, result, HumanOptions{Grouped: true}); err != nil {
-		t.Fatalf("WriteHuman grouped returned error: %v", err)
+	if err := WriteHuman(&output, result, HumanOptions{Ungrouped: true}); err != nil {
+		t.Fatalf("WriteHuman returned error: %v", err)
 	}
 
 	text := stripOSC8(output.String())
 	for _, want := range []string{
-		"# example",
-		"## Procedure notes",
-		"  [example] Sample rollout note (note) 2026-04-28T09:30:00Z",
-		"## Ungrouped",
-		"  [example] Loose hit (note)",
+		"[example] Sample rollout note (note) 2026-04-28T09:30:00Z",
+		"matched rollout context",
+		"actions: https file",
+		"[example] warning: fixture warning",
 	} {
 		if !strings.Contains(text, want) {
-			t.Fatalf("grouped output %q does not contain %q", text, want)
+			t.Fatalf("ungrouped output %q does not contain %q", text, want)
 		}
 	}
 }
 
-func TestWriteHumanRendersCodeMatchesCompactly(t *testing.T) {
+func TestWriteHumanGroupedSuppressesGroupFileAction(t *testing.T) {
+	var output bytes.Buffer
+	result := orgEntryResult()
+
+	if err := WriteHuman(&output, result, HumanOptions{}); err != nil {
+		t.Fatalf("WriteHuman returned error: %v", err)
+	}
+
+	text := stripOSC8(output.String())
+	for _, want := range []string{"[org] notes.org", "  Matched org entry"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("grouped org output %q does not contain %q", text, want)
+		}
+	}
+	if strings.Contains(text, "actions: file") || strings.Contains(text, "actions:") {
+		t.Fatalf("grouped org output %q contains redundant file action", text)
+	}
+}
+
+func TestWriteHumanGroupedRendersFileLinesWithLinkedSnippets(t *testing.T) {
 	var output bytes.Buffer
 	result := codeMatchResult()
 
 	if err := WriteHuman(&output, result, HumanOptions{}); err != nil {
+		t.Fatalf("WriteHuman returned error: %v", err)
+	}
+
+	rawText := output.String()
+	text := stripOSC8(rawText)
+	for _, want := range []string{
+		"[code] styleguide/kotlin/formatting.md",
+		"     51: fun createSampleItem(flavor: Flavor): SampleItem = when(flavor) {",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("grouped code output %q does not contain %q", text, want)
+		}
+	}
+	for _, unwanted := range []string{"# code", "## styleguide/kotlin/formatting.md", "[code] styleguide/kotlin/formatting.md:51:11", "file:///workspace/codebase/styleguide/kotlin/formatting.md", "(code_match)"} {
+		if strings.Contains(text, unwanted) {
+			t.Fatalf("grouped code output %q contains noisy metadata %q", text, unwanted)
+		}
+	}
+	groupURL := "recall://open?kind=code_match&path=%2Fworkspace%2Fcodebase%2Fstyleguide%2Fkotlin%2Fformatting.md&source=code&type=file&v=1"
+	if !strings.Contains(rawText, groupURL) {
+		t.Fatalf("grouped code output %q does not contain file group recall target %q", rawText, groupURL)
+	}
+	if !strings.Contains(rawText, "recall://open?") || !strings.Contains(rawText, "line=51") || !strings.Contains(rawText, "column=11") {
+		t.Fatalf("grouped code output %q does not contain line recall target", rawText)
+	}
+}
+
+func TestWriteHumanUngroupedRendersCodeMatchesCompactly(t *testing.T) {
+	var output bytes.Buffer
+	result := codeMatchResult()
+
+	if err := WriteHuman(&output, result, HumanOptions{Ungrouped: true}); err != nil {
 		t.Fatalf("WriteHuman returned error: %v", err)
 	}
 
@@ -87,23 +145,6 @@ func TestWriteHumanRendersCodeMatchesCompactly(t *testing.T) {
 	}
 	if !strings.Contains(rawText, "recall://open?") || !strings.Contains(rawText, "path=%2Fworkspace%2Fcodebase%2Fstyleguide%2Fkotlin%2Fformatting.md") {
 		t.Fatalf("code output %q does not contain file recall target", rawText)
-	}
-}
-
-func TestWriteHumanGroupedOmitsCodeFileURIFromGroupHeader(t *testing.T) {
-	var output bytes.Buffer
-	result := codeMatchResult()
-
-	if err := WriteHuman(&output, result, HumanOptions{Grouped: true}); err != nil {
-		t.Fatalf("WriteHuman grouped returned error: %v", err)
-	}
-
-	text := stripOSC8(output.String())
-	if !strings.Contains(text, "## styleguide/kotlin/formatting.md\n") {
-		t.Fatalf("grouped code output %q does not contain compact file header", text)
-	}
-	if strings.Contains(text, "## styleguide/kotlin/formatting.md <file://") {
-		t.Fatalf("grouped code output %q contains noisy file URI in header", text)
 	}
 }
 
@@ -181,6 +222,32 @@ func TestWriteJSONPreservesProviderResponsesAndFailures(t *testing.T) {
 	if len(payload.Failures) != 1 || payload.Failures[0].ProviderID != "bad" || payload.Failures[0].Error != "boom" {
 		t.Fatalf("failures = %#v", payload.Failures)
 	}
+}
+
+func orgEntryResult() *orchestrator.Result {
+	hit := &searchv1.SearchHit{
+		Id:    "org:entry",
+		Kind:  "org_entry",
+		Title: "Matched org entry",
+		Targets: []*searchv1.OpenTarget{
+			uriTarget("org-protocol:/roam-node?node=89808715-6315-4484-B726-DFC9F4F2345D"),
+			fileTarget("/tmp/notes.org", 12, 1),
+		},
+		Group: &searchv1.SearchGroup{
+			Key:     "file:/tmp/notes.org",
+			Title:   "notes.org",
+			Targets: []*searchv1.OpenTarget{fileTarget("/tmp/notes.org", 0, 0)},
+		},
+	}
+	return &orchestrator.Result{Responses: []orchestrator.ProviderResponse{{
+		ProviderID: "org",
+		Hits: []normalize.Hit{{
+			ProviderID:   "org",
+			ProviderRank: 1,
+			Hit:          hit,
+		}},
+		Raw: &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{hit}},
+	}}}
 }
 
 func codeMatchResult() *orchestrator.Result {

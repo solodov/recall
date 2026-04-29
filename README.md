@@ -15,7 +15,7 @@ message SearchRequest {
 }
 ```
 
-Recall-level flags such as `--source`, `--kind`, and `--grouped` are orchestration or rendering controls. Providers receive only `query` and optional `limit`; when `limit` is absent, providers should return every reasonable match.
+Recall-level flags such as `--source`, `--kind`, and output format are orchestration or rendering controls. Providers receive only `query` and optional `limit`; when `limit` is absent, providers should return every reasonable match.
 
 ## Stdio provider protocol
 

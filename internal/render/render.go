@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -18,10 +19,10 @@ import (
 )
 
 // HumanOptions controls terminal-oriented rendering without changing provider
-// response data.
+// response data. The zero value uses grouped terminal output.
 type HumanOptions struct {
-	// Grouped groups hits by source and provider-supplied group identity.
-	Grouped bool
+	// Ungrouped renders a flat result list for debugging or compatibility.
+	Ungrouped bool
 }
 
 // WriteHuman renders normalized results with compact terminal-oriented rules.
@@ -31,31 +32,31 @@ func WriteHuman(writer io.Writer, result *orchestrator.Result, options HumanOpti
 	if result == nil {
 		return nil
 	}
-	if options.Grouped {
-		return writeGroupedHuman(writer, result)
+	if options.Ungrouped {
+		for _, hit := range ungroupedHits(result) {
+			writeHumanHit(writer, hit, "")
+		}
+		for _, response := range result.Responses {
+			writeHumanWarnings(writer, response.Warnings)
+		}
+		return nil
 	}
-	for _, hit := range ungroupedHits(result) {
-		writeHumanHit(writer, hit, "")
-	}
-	for _, response := range result.Responses {
-		writeHumanWarnings(writer, response.Warnings)
-	}
-	return nil
+	return writeGroupedHuman(writer, result)
 }
 
 func writeGroupedHuman(writer io.Writer, result *orchestrator.Result) error {
+	wroteGroup := false
 	for _, response := range result.Responses {
-		fmt.Fprintf(writer, "# %s\n", response.ProviderID)
 		groups := groupHits(response.Hits)
 		for _, group := range groups {
-			title := singleLine(group.title)
-			if target := firstTarget(group.targets); target != nil {
-				title = terminalLink(title, recallOpenURL(response.ProviderID, "", target))
+			if wroteGroup {
+				fmt.Fprintln(writer)
 			}
-			fmt.Fprintf(writer, "## %s\n", title)
+			fmt.Fprintf(writer, "[%s] %s\n", response.ProviderID, linkedGroupTitle(response.ProviderID, group))
 			for _, hit := range group.hits {
-				writeHumanHit(writer, hit, "  ")
+				writeGroupedHit(writer, response.ProviderID, group, hit)
 			}
+			wroteGroup = true
 		}
 		writeHumanWarnings(writer, response.Warnings)
 	}
@@ -103,12 +104,117 @@ func writeCompactCodeHit(writer io.Writer, normalized normalize.Hit, indent stri
 	}
 }
 
+func writeGroupedHit(writer io.Writer, providerID string, group groupedHits, normalized normalize.Hit) {
+	hit := normalized.Hit
+	if hit == nil {
+		return
+	}
+	if fileTarget, target, ok := groupedLineTarget(group, hit); ok {
+		label := groupedHitLabel(hit)
+		fmt.Fprintf(writer, "  %5d: %s", fileTarget.GetLine(), terminalLink(label, recallOpenURL(providerID, hit.GetKind(), target)))
+		fmt.Fprintln(writer)
+		if actions := groupedSecondaryActions(providerID, hit.GetKind(), group, hit.GetTargets()); actions != "" {
+			fmt.Fprintf(writer, "         actions: %s\n", actions)
+		}
+		return
+	}
+
+	fmt.Fprintf(writer, "  %s", linkedTitle(providerID, hit))
+	if occurredAt := hit.GetOccurredAt(); occurredAt != nil && occurredAt.IsValid() {
+		fmt.Fprintf(writer, " %s", occurredAt.AsTime().UTC().Format(time.RFC3339))
+	}
+	fmt.Fprintln(writer)
+	if snippet := groupedSnippet(hit); snippet != "" {
+		fmt.Fprintf(writer, "    %s\n", snippet)
+	}
+	if actions := groupedSecondaryActions(providerID, hit.GetKind(), group, hit.GetTargets()); actions != "" {
+		fmt.Fprintf(writer, "    actions: %s\n", actions)
+	}
+}
+
 func linkedTitle(providerID string, hit *searchv1.SearchHit) string {
 	title := singleLine(hit.GetTitle())
 	if target := firstTarget(hit.GetTargets()); target != nil {
 		return terminalLink(title, recallOpenURL(providerID, hit.GetKind(), target))
 	}
 	return title
+}
+
+func linkedGroupTitle(providerID string, group groupedHits) string {
+	title := singleLine(group.title)
+	if target := firstTarget(group.targets); target != nil {
+		return terminalLink(title, recallOpenURL(providerID, commonGroupKind(group), target))
+	}
+	return title
+}
+
+func commonGroupKind(group groupedHits) string {
+	var kind string
+	for _, normalized := range group.hits {
+		hit := normalized.Hit
+		if hit == nil {
+			continue
+		}
+		hitKind := strings.TrimSpace(hit.GetKind())
+		if hitKind == "" {
+			continue
+		}
+		if kind == "" {
+			kind = hitKind
+			continue
+		}
+		if kind != hitKind {
+			return ""
+		}
+	}
+	return kind
+}
+
+func groupedLineTarget(group groupedHits, hit *searchv1.SearchHit) (*searchv1.FileTarget, *searchv1.OpenTarget, bool) {
+	groupFile := fileTargetForOpen(firstTarget(group.targets))
+	if groupFile == nil {
+		return nil, nil, false
+	}
+	target := firstTarget(hit.GetTargets())
+	hitFile := fileTargetForOpen(target)
+	if hitFile == nil || hitFile.Line == nil {
+		return nil, nil, false
+	}
+	if !sameFilePath(groupFile.GetPath(), hitFile.GetPath()) {
+		return nil, nil, false
+	}
+	return hitFile, target, true
+}
+
+func fileTargetForOpen(target *searchv1.OpenTarget) *searchv1.FileTarget {
+	if target == nil {
+		return nil
+	}
+	return target.GetFile()
+}
+
+func sameFilePath(left string, right string) bool {
+	left = strings.TrimSpace(left)
+	right = strings.TrimSpace(right)
+	if left == "" || right == "" {
+		return false
+	}
+	return filepath.Clean(left) == filepath.Clean(right)
+}
+
+func groupedHitLabel(hit *searchv1.SearchHit) string {
+	if snippet := strings.TrimSpace(hit.GetSnippet()); snippet != "" {
+		return singleLine(snippet)
+	}
+	return singleLine(hit.GetTitle())
+}
+
+func groupedSnippet(hit *searchv1.SearchHit) string {
+	snippet := singleLine(hit.GetSnippet())
+	if snippet == "" || snippet == singleLine(hit.GetTitle()) {
+		return ""
+	}
+	return snippet
 }
 
 func writeHumanWarnings(writer io.Writer, warnings []normalize.Warning) {
@@ -242,7 +348,7 @@ func groupHits(hits []normalize.Hit) []groupedHits {
 	for _, hit := range hits {
 		group := hit.Hit.GetGroup()
 		key := "__ungrouped__"
-		title := "Ungrouped"
+		title := "Results"
 		var targets []*searchv1.OpenTarget
 		if group != nil && strings.TrimSpace(group.GetKey()) != "" {
 			key = group.GetKey()
@@ -275,18 +381,45 @@ func firstTarget(targets []*searchv1.OpenTarget) *searchv1.OpenTarget {
 }
 
 func secondaryActions(providerID string, kind string, targets []*searchv1.OpenTarget) string {
+	return secondaryActionsFiltered(providerID, kind, targets, nil)
+}
+
+func groupedSecondaryActions(providerID string, kind string, group groupedHits, targets []*searchv1.OpenTarget) string {
+	return secondaryActionsFiltered(providerID, kind, targets, func(target *searchv1.OpenTarget) bool {
+		return isRedundantGroupAction(group, target)
+	})
+}
+
+func secondaryActionsFiltered(providerID string, kind string, targets []*searchv1.OpenTarget, skip func(*searchv1.OpenTarget) bool) string {
 	if len(targets) <= 1 {
 		return ""
 	}
 	actions := make([]string, 0, len(targets)-1)
 	for _, target := range targets[1:] {
-		if target == nil || target.GetTarget() == nil {
+		if target == nil || target.GetTarget() == nil || (skip != nil && skip(target)) {
 			continue
 		}
 		label := targetLabel(target)
 		actions = append(actions, terminalLink(label, recallOpenURL(providerID, kind, target)))
 	}
 	return strings.Join(actions, " ")
+}
+
+func isRedundantGroupAction(group groupedHits, target *searchv1.OpenTarget) bool {
+	groupTarget := firstTarget(group.targets)
+	if groupFile, targetFile := fileTargetForOpen(groupTarget), fileTargetForOpen(target); groupFile != nil && targetFile != nil {
+		return sameFilePath(groupFile.GetPath(), targetFile.GetPath())
+	}
+	groupURI := uriTargetForOpen(groupTarget)
+	targetURI := uriTargetForOpen(target)
+	return groupURI != nil && targetURI != nil && strings.TrimSpace(groupURI.GetUri()) == strings.TrimSpace(targetURI.GetUri())
+}
+
+func uriTargetForOpen(target *searchv1.OpenTarget) *searchv1.UriTarget {
+	if target == nil {
+		return nil
+	}
+	return target.GetUri()
 }
 
 func targetLabel(target *searchv1.OpenTarget) string {

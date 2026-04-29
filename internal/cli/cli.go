@@ -58,7 +58,7 @@ func (app App) Run(ctx context.Context, args []string) error {
 		stderr = io.Discard
 	}
 
-	options := commandOptions{logLevel: "off", format: string(outputFormatHuman)}
+	options := commandOptions{logLevel: "off", format: string(outputFormatHuman), grouped: true}
 	cmd := app.newRootCommand(stdout, stderr, &options)
 	cmd.SetArgs(expandListSourcesAlias(args))
 	cmd.SetOut(stdout)
@@ -131,7 +131,7 @@ Source vs kind:
 		Example: strings.TrimSpace(`recall -ls
 recall sample
 recall -s code "foo -in:test"
-recall --source code -g "foo -in:test"
+recall --source code "foo -in:test"
 recall --kind code_match -l 20 router
 recall -f json sample
 recall --config ./examples/config.txtpb sample`),
@@ -165,7 +165,7 @@ recall --config ./examples/config.txtpb sample`),
 	cmd.Flags().VarP(&options.sources, "source", "s", "comma-separated provider IDs/corpora to query")
 	cmd.Flags().Var(&options.kinds, "kind", "comma-separated result kinds to keep after provider search, e.g. code_match or note")
 	cmd.Flags().Uint32VarP(&options.limit, "limit", "l", 0, "override per-provider result limit")
-	cmd.Flags().BoolVarP(&options.grouped, "grouped", "g", false, "group human output by source and provider group")
+	cmd.Flags().BoolVarP(&options.grouped, "grouped", "g", true, "group human output by source and provider group (default; use --grouped=false for flat output)")
 	cmd.Flags().StringVarP(&options.format, "format", "f", string(outputFormatHuman), "output format: human or json")
 	cmd.Flags().BoolVar(&options.listSources, "list-sources", false, "list configured sources/providers and exit (alias: -ls)")
 	cmd.Flags().SetInterspersed(false)
@@ -183,7 +183,7 @@ Common commands:
   recall -ls                               list configured corpora/providers
   recall sample                            search all enabled providers
   recall -s code "foo -in:test"             search only the code corpus
-  recall --source code -g "foo"             group code matches by provider group
+  recall --source code "foo"                search code with grouped terminal output
   recall --kind code_match -l 20 foo        show up to 20 code matches per provider
   recall -f json sample                    emit machine-readable results
 
@@ -257,7 +257,7 @@ func (app App) runSearch(ctx context.Context, stdout io.Writer, stderr io.Writer
 			case outputFormatJSON:
 				return render.WriteJSON(stdout, result)
 			case outputFormatHuman:
-				return render.WriteHuman(stdout, result, render.HumanOptions{Grouped: options.grouped})
+				return render.WriteHuman(stdout, result, render.HumanOptions{Ungrouped: !options.grouped})
 			}
 			return nil
 		}, "format", string(parsedFormat), "grouped", options.grouped)
