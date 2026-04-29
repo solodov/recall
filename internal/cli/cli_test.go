@@ -66,7 +66,7 @@ func TestRunLoadsConfigSearchesAndRendersResults(t *testing.T) {
 	if len(receivedOptions.Kinds) != 0 {
 		t.Fatalf("kinds = %#v, want none", receivedOptions.Kinds)
 	}
-	output := stdout.String()
+	output := stripTerminalEscapes(stdout.String())
 	for _, want := range []string{"[example:note] Results", "  Example result", "    matched text"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("stdout %q does not contain %q", output, want)
@@ -357,4 +357,29 @@ func newTestRuntime(ctx context.Context, _ RuntimeOptions) (runtimepkg.Context, 
 
 func stringPtr(value string) *string {
 	return &value
+}
+
+func stripTerminalEscapes(text string) string {
+	for {
+		start := strings.Index(text, "\x1b]8;;")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(text[start:], "\x1b\\")
+		if end == -1 {
+			break
+		}
+		text = text[:start] + text[start+end+2:]
+	}
+	for {
+		start := strings.Index(text, "\x1b[")
+		if start == -1 {
+			return text
+		}
+		end := strings.Index(text[start:], "m")
+		if end == -1 {
+			return text
+		}
+		text = text[:start] + text[start+end+1:]
+	}
 }

@@ -116,7 +116,8 @@ func writeGroupedHit(writer io.Writer, providerID string, group groupedHits, nor
 	}
 	if fileTarget, target, ok := groupedLineTarget(group, hit); ok {
 		label := groupedHitLabel(hit)
-		fmt.Fprintf(writer, "  %5d: %s", fileTarget.GetLine(), terminalLink(label, recallOpenURL(providerID, hit.GetKind(), target)))
+		lineLabel := styleLineNumber(fmt.Sprintf("%5d:", fileTarget.GetLine()))
+		fmt.Fprintf(writer, "  %s %s", lineLabel, terminalLink(label, recallOpenURL(providerID, hit.GetKind(), target)))
 		fmt.Fprintln(writer)
 		if actions := groupedSecondaryActions(providerID, hit.GetKind(), group, hit.GetTargets()); actions != "" {
 			fmt.Fprintf(writer, "         actions: %s\n", actions)
@@ -146,7 +147,7 @@ func linkedTitle(providerID string, hit *searchv1.SearchHit) string {
 }
 
 func linkedGroupTitle(providerID string, group groupedHits) string {
-	title := singleLine(group.title)
+	title := styleGroupTitle(singleLine(group.title))
 	if target := firstTarget(group.targets); target != nil {
 		return terminalLink(title, recallOpenURL(providerID, commonGroupKind(group), target))
 	}
@@ -154,7 +155,7 @@ func linkedGroupTitle(providerID string, group groupedHits) string {
 }
 
 func linkedGroupHeaderLabel(providerID string, group groupedHits, configTargets map[string]*searchv1.OpenTarget) string {
-	label := "[" + groupHeaderLabel(providerID, group) + "]"
+	label := styleGroupLabel("[" + groupHeaderLabel(providerID, group) + "]")
 	if target := configTargets[providerID]; target != nil {
 		return terminalLink(label, recallOpenURL(providerID, commonGroupKind(group), target))
 	}
@@ -177,6 +178,25 @@ func displayKind(kind string) string {
 	default:
 		return kind
 	}
+}
+
+func styleGroupLabel(label string) string {
+	return styleANSI(label, groupLabelStyle)
+}
+
+func styleGroupTitle(title string) string {
+	return styleANSI(title, groupTitleStyle)
+}
+
+func styleLineNumber(lineNumber string) string {
+	return styleANSI(lineNumber, lineNumberStyle)
+}
+
+func styleANSI(text string, style string) string {
+	if text == "" {
+		return ""
+	}
+	return style + text + resetStyle
 }
 
 func commonGroupKind(group groupedHits) string {
@@ -348,7 +368,14 @@ func synthesizeRawResponse(response orchestrator.ProviderResponse) *searchv1.Sea
 	return raw
 }
 
-const codeMatchKind = "code_match"
+const (
+	codeMatchKind = "code_match"
+
+	resetStyle      = "\x1b[0m"
+	groupLabelStyle = "\x1b[2;38;2;150;139;125m"
+	groupTitleStyle = "\x1b[1m"
+	lineNumberStyle = "\x1b[38;2;135;125;112m"
+)
 
 type groupedHits struct {
 	key     string

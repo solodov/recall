@@ -102,9 +102,9 @@ func TestWriteHumanGroupedLinksSourceLabelToProviderConfig(t *testing.T) {
 	if !strings.Contains(stripOSC8(rawText), "[code:content] styleguide/kotlin/formatting.md") {
 		t.Fatalf("grouped output %q does not keep source label shape", rawText)
 	}
-	want := "recall://open?column=1&kind=code_match&line=17&path=%2Fworkspace%2Fconfig%2Frecall.txtpb&source=code&type=file&v=1\x1b\\[code:content]"
-	if !strings.Contains(rawText, want) {
-		t.Fatalf("grouped output %q does not link source label to config target %q", rawText, want)
+	wantURL := "recall://open?column=1&kind=code_match&line=17&path=%2Fworkspace%2Fconfig%2Frecall.txtpb&source=code&type=file&v=1"
+	if !strings.Contains(rawText, wantURL) || !strings.Contains(rawText, groupLabelStyle+"[code:content]"+resetStyle) {
+		t.Fatalf("grouped output %q does not link styled source label to config target %q", rawText, wantURL)
 	}
 }
 
@@ -137,6 +137,12 @@ func TestWriteHumanGroupedRendersFileLinesWithLinkedSnippets(t *testing.T) {
 	}
 	if !strings.Contains(rawText, "recall://open?") || !strings.Contains(rawText, "line=51") || !strings.Contains(rawText, "column=11") {
 		t.Fatalf("grouped code output %q does not contain line recall target", rawText)
+	}
+	if !strings.Contains(rawText, groupTitleStyle+"styleguide/kotlin/formatting.md"+resetStyle) {
+		t.Fatalf("grouped code output %q does not style group title", rawText)
+	}
+	if !strings.Contains(rawText, lineNumberStyle+"   51:"+resetStyle) {
+		t.Fatalf("grouped code output %q does not style line number", rawText)
 	}
 }
 
@@ -352,13 +358,27 @@ func stripOSC8(text string) string {
 	for {
 		start := strings.Index(text, "\x1b]8;;")
 		if start == -1 {
-			return text
+			return stripSGR(text)
 		}
 		end := strings.Index(text[start:], "\x1b\\")
 		if end == -1 {
-			return text
+			return stripSGR(text)
 		}
 		text = text[:start] + text[start+end+2:]
+	}
+}
+
+func stripSGR(text string) string {
+	for {
+		start := strings.Index(text, "\x1b[")
+		if start == -1 {
+			return text
+		}
+		end := strings.Index(text[start:], "m")
+		if end == -1 {
+			return text
+		}
+		text = text[:start] + text[start+end+1:]
 	}
 }
 
