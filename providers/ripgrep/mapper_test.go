@@ -47,6 +47,33 @@ func TestHitsFromMatchesMapsCodeMatchFields(t *testing.T) {
 	}
 }
 
+func TestPathHitsFromMatchesMapsFileAndDirectoryFields(t *testing.T) {
+	root := t.TempDir()
+	matchPath := filepath.Join(root, "providers", "ripgrep", "runner.go")
+
+	hits := PathHitsFromMatches([]PathMatch{{Path: matchPath}}, HitOptions{Roots: []string{root}})
+
+	if len(hits) != 1 {
+		t.Fatalf("hit count = %d, want 1", len(hits))
+	}
+	hit := hits[0]
+	if hit.GetKind() != KindPathMatch || hit.GetTitle() != "runner.go" {
+		t.Fatalf("hit = %#v, want path match title", hit)
+	}
+	if hit.GetId() != "path_match:"+matchPath {
+		t.Fatalf("id = %q", hit.GetId())
+	}
+	if len(hit.GetTargets()) != 1 || hit.GetTargets()[0].GetFile().GetPath() != matchPath {
+		t.Fatalf("targets = %#v, want file target", hit.GetTargets())
+	}
+	if hit.GetGroup().GetKey() != "providers/ripgrep" || hit.GetGroup().GetTitle() != "providers/ripgrep" {
+		t.Fatalf("group = %#v, want parent directory group", hit.GetGroup())
+	}
+	if hit.GetGroup().GetTargets()[0].GetFile().GetPath() != filepath.Dir(matchPath) {
+		t.Fatalf("group targets = %#v, want directory target", hit.GetGroup().GetTargets())
+	}
+}
+
 func TestHitsFromMatchesEmitsOneHitPerMatchingLine(t *testing.T) {
 	root := t.TempDir()
 	hits := HitsFromMatches([]Match{{

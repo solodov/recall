@@ -38,11 +38,14 @@ func TestProviderSearchPassesExistingRootsQueryAndLimitToRunner(t *testing.T) {
 	if !reflect.DeepEqual(runner.options.Roots, []string{root}) {
 		t.Fatalf("roots = %#v, want %q", runner.options.Roots, root)
 	}
+	if !reflect.DeepEqual(runner.options.Kinds, []SearchKind{SearchKindPath, SearchKindContent}) {
+		t.Fatalf("kinds = %#v, want path and content", runner.options.Kinds)
+	}
 	if !reflect.DeepEqual(runner.options.FileTypes, []string{"go"}) {
 		t.Fatalf("file types = %#v, want go", runner.options.FileTypes)
 	}
-	if !reflect.DeepEqual(runner.options.ExcludedScopes, []Scope{ScopeTest}) {
-		t.Fatalf("excluded scopes = %#v, want test", runner.options.ExcludedScopes)
+	if !reflect.DeepEqual(runner.options.PathFilters, []PathFilter{{Include: false, Pattern: "test"}}) {
+		t.Fatalf("path filters = %#v, want test exclusion regex", runner.options.PathFilters)
 	}
 	if runner.options.Limit != 2 {
 		t.Fatalf("limit = %d, want 2", runner.options.Limit)
@@ -110,6 +113,39 @@ func TestProviderSearchWithoutLimitReturnsAllRunnerMatches(t *testing.T) {
 	}
 }
 
+func TestProviderSearchReturnsPathMatches(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "providers", "ripgrep", "runner.go")
+	runner := &recordingRunner{result: RunResult{PathMatches: []PathMatch{{Path: path}}}}
+	provider := New(Options{Roots: []string{root}, Runner: runner})
+
+	response, err := provider.Search(context.Background(), &searchv1.SearchRequest{Query: "runner -k path"})
+	if err != nil {
+		t.Fatalf("Search returned error: %v", err)
+	}
+	if !reflect.DeepEqual(runner.options.Kinds, []SearchKind{SearchKindPath}) {
+		t.Fatalf("kinds = %#v, want path", runner.options.Kinds)
+	}
+	if len(response.GetHits()) != 1 || response.GetHits()[0].GetKind() != KindPathMatch || response.GetHits()[0].GetTitle() != "runner.go" {
+		t.Fatalf("hits = %#v, want mapped path match", response.GetHits())
+	}
+}
+
+func TestProviderSearchPassesPathFilters(t *testing.T) {
+	root := t.TempDir()
+	runner := &recordingRunner{}
+	provider := New(Options{Roots: []string{root}, Runner: runner})
+
+	_, err := provider.Search(context.Background(), &searchv1.SearchRequest{Query: "foo -k content in:router -in:generated"})
+	if err != nil {
+		t.Fatalf("Search returned error: %v", err)
+	}
+	want := []PathFilter{{Include: true, Pattern: "router"}, {Include: false, Pattern: "generated"}}
+	if !reflect.DeepEqual(runner.options.PathFilters, want) {
+		t.Fatalf("path filters = %#v, want %#v", runner.options.PathFilters, want)
+	}
+}
+
 func TestProviderSearchPreservesRunnerWarnings(t *testing.T) {
 	root := t.TempDir()
 	runner := &recordingRunner{result: RunResult{Warnings: []*searchv1.Warning{{
@@ -146,8 +182,8 @@ func TestProviderServesThroughSDKWithTextproto(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ServeSearchWithOptions returned error: %v", err)
 	}
-	if runner.options.Limit != 1 || !reflect.DeepEqual(runner.options.FileTypes, []string{"go"}) || !reflect.DeepEqual(runner.options.ExcludedScopes, []Scope{ScopeTest}) {
-		t.Fatalf("runner options = %#v, want limit, go type, and test exclusion", runner.options)
+	if runner.options.Limit != 1 || !reflect.DeepEqual(runner.options.FileTypes, []string{"go"}) || !reflect.DeepEqual(runner.options.PathFilters, []PathFilter{{Include: false, Pattern: "test"}}) {
+		t.Fatalf("runner options = %#v, want limit, go type, and test exclusion regex", runner.options)
 	}
 	response := &searchv1.SearchResponse{}
 	if err := prototext.Unmarshal(stdout.Bytes(), response); err != nil {
@@ -168,11 +204,12 @@ type recordingRunner struct {
 func (runner *recordingRunner) Run(_ context.Context, options RunOptions) (RunResult, error) {
 	runner.called = true
 	runner.options = RunOptions{
-		Pattern:        options.Pattern,
-		Roots:          append([]string{}, options.Roots...),
-		FileTypes:      append([]string{}, options.FileTypes...),
-		ExcludedScopes: append([]Scope{}, options.ExcludedScopes...),
-		Limit:          options.Limit,
+		Pattern:     options.Pattern,
+		Roots:       append([]string{}, options.Roots...),
+		Kinds:       append([]SearchKind{}, options.Kinds...),
+		FileTypes:   append([]string{}, options.FileTypes...),
+		PathFilters: append([]PathFilter{}, options.PathFilters...),
+		Limit:       options.Limit,
 	}
 	return runner.result, runner.err
 }

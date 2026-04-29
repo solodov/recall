@@ -11,8 +11,10 @@ import (
 )
 
 const (
-	// KindCodeMatch is the recall result kind emitted for ripgrep matches.
+	// KindCodeMatch is the recall result kind emitted for ripgrep content matches.
 	KindCodeMatch = "code_match"
+	// KindPathMatch is the recall result kind emitted for ripgrep path matches.
+	KindPathMatch = "path_match"
 )
 
 // HitOptions controls how ripgrep match paths are presented in recall hits.
@@ -20,12 +22,19 @@ type HitOptions struct {
 	Roots []string
 }
 
-// MatchesToSearchResponse converts ripgrep matches plus provider warnings into
+// MatchesToSearchResponse converts ripgrep content matches plus provider warnings into
 // a recall SearchResponse. Each matching line becomes one hit so repeated terms
 // on the same line do not crowd out distinct search results.
 func MatchesToSearchResponse(matches []Match, warnings []*searchv1.Warning, options HitOptions) *searchv1.SearchResponse {
+	return SearchResponseFromRunResult(RunResult{Matches: matches}, warnings, options)
+}
+
+// SearchResponseFromRunResult maps one runner result into recall hits and warnings.
+func SearchResponseFromRunResult(result RunResult, warnings []*searchv1.Warning, options HitOptions) *searchv1.SearchResponse {
+	hits := PathHitsFromMatches(result.PathMatches, options)
+	hits = append(hits, HitsFromMatches(result.Matches, options)...)
 	return &searchv1.SearchResponse{
-		Hits:     HitsFromMatches(matches, options),
+		Hits:     hits,
 		Warnings: cloneWarnings(warnings),
 	}
 }
@@ -38,6 +47,36 @@ func HitsFromMatches(matches []Match, options HitOptions) []*searchv1.SearchHit 
 		hits = append(hits, hitFromMatch(match, options))
 	}
 	return hits
+}
+
+// PathHitsFromMatches converts path matches into openable file hits grouped by directory.
+func PathHitsFromMatches(matches []PathMatch, options HitOptions) []*searchv1.SearchHit {
+	hits := make([]*searchv1.SearchHit, 0, len(matches))
+	for _, match := range matches {
+		hits = append(hits, pathHitFromMatch(match, options))
+	}
+	return hits
+}
+
+func pathHitFromMatch(match PathMatch, options HitOptions) *searchv1.SearchHit {
+	absolutePath := absoluteMatchPath(match.Path, options.Roots)
+	displayPath := displayMatchPath(absolutePath, options.Roots)
+	displayDir := displayMatchPath(filepath.Dir(absolutePath), options.Roots)
+	return &searchv1.SearchHit{
+		Id:    fmt.Sprintf("path_match:%s", absolutePath),
+		Kind:  KindPathMatch,
+		Title: filepath.Base(displayPath),
+		Targets: []*searchv1.OpenTarget{
+			fileTarget(absolutePath, 0, 0),
+		},
+		Group: &searchv1.SearchGroup{
+			Key:   displayDir,
+			Title: displayDir,
+			Targets: []*searchv1.OpenTarget{
+				fileTarget(filepath.Dir(absolutePath), 0, 0),
+			},
+		},
+	}
 }
 
 func hitFromMatch(match Match, options HitOptions) *searchv1.SearchHit {

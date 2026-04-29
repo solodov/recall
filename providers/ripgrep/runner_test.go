@@ -3,6 +3,7 @@ package ripgrep
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -13,10 +14,9 @@ import (
 
 func TestBuildArgsIncludesJSONFixedStringSearchRootsTypesAndExclusions(t *testing.T) {
 	args, err := BuildArgs(RunOptions{
-		Pattern:        "foo",
-		Roots:          []string{"/repo"},
-		FileTypes:      []string{"go"},
-		ExcludedScopes: []Scope{ScopeTest},
+		Pattern:   "foo",
+		Roots:     []string{"/repo"},
+		FileTypes: []string{"go"},
 	})
 	if err != nil {
 		t.Fatalf("BuildArgs returned error: %v", err)
@@ -31,13 +31,29 @@ func TestBuildArgsIncludesJSONFixedStringSearchRootsTypesAndExclusions(t *testin
 		"--color=never",
 		"--no-follow",
 		"--type", "go",
-		"--glob", "!**/*_test.*",
-		"--glob", "!**/*.test.*",
-		"--glob", "!**/*.spec.*",
-		"--glob", "!**/test/**",
-		"--glob", "!**/tests/**",
-		"--glob", "!**/__tests__/**",
 		"foo",
+		"/repo",
+	}
+	if !reflect.DeepEqual(args, want) {
+		t.Fatalf("args = %#v, want %#v", args, want)
+	}
+}
+
+func TestBuildFilesArgsIncludesFileListingRootsTypesAndExclusions(t *testing.T) {
+	args, err := BuildFilesArgs(RunOptions{
+		Roots:     []string{"/repo"},
+		FileTypes: []string{"go"},
+	})
+	if err != nil {
+		t.Fatalf("BuildFilesArgs returned error: %v", err)
+	}
+
+	want := []string{
+		"--files",
+		"--null",
+		"--color=never",
+		"--no-follow",
+		"--type", "go",
 		"/repo",
 	}
 	if !reflect.DeepEqual(args, want) {
@@ -127,6 +143,109 @@ func TestRunnerTreatsExitCodeOneAsNoMatches(t *testing.T) {
 	}
 	if len(result.Matches) != 0 {
 		t.Fatalf("matches = %#v, want none", result.Matches)
+	}
+}
+
+func TestRunnerFindsPathMatchesFromFileListing(t *testing.T) {
+	script := `
+if [ "$1" = "--files" ]; then
+  printf '%s\0' '/repo/src/router.go' '/repo/docs/readme.md'
+  exit 0
+fi
+exit 1
+`
+	runner := Runner{Binary: writeFakeRG(t, script)}
+
+	result, err := runner.Run(context.Background(), RunOptions{Pattern: "router", Roots: []string{"/repo"}, Kinds: []SearchKind{SearchKindPath}})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if len(result.PathMatches) != 1 || result.PathMatches[0].Path != "/repo/src/router.go" {
+		t.Fatalf("path matches = %#v, want router.go", result.PathMatches)
+	}
+	if len(result.Matches) != 0 {
+		t.Fatalf("content matches = %#v, want none", result.Matches)
+	}
+}
+
+func TestRunnerRestrictsContentSearchToIncludePathFilters(t *testing.T) {
+	argsPath := filepath.Join(t.TempDir(), "args")
+	script := fmt.Sprintf(`
+if [ "$1" = "--files" ]; then
+  printf '%%s\0' '/repo/src/router.go' '/repo/src/other.go'
+  exit 0
+fi
+printf '%%s\n' "$@" > %q
+printf '%%s\n' '{"type":"match","data":{"path":{"text":"/repo/src/router.go"},"lines":{"text":"foo\\n"},"line_number":1,"submatches":[]}}'
+`, argsPath)
+	runner := Runner{Binary: writeFakeRG(t, script)}
+
+	result, err := runner.Run(context.Background(), RunOptions{Pattern: "foo", Roots: []string{"/repo"}, Kinds: []SearchKind{SearchKindContent}, PathFilters: []PathFilter{{Include: true, Pattern: "router"}}})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if len(result.Matches) != 1 || result.Matches[0].Path != "/repo/src/router.go" {
+		t.Fatalf("matches = %#v, want router content match", result.Matches)
+	}
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatalf("read args: %v", err)
+	}
+	argText := string(args)
+	if !strings.Contains(argText, "/repo/src/router.go") || strings.Contains(argText, "/repo/src/other.go") {
+		t.Fatalf("content args = %q, want only filtered file", argText)
+	}
+}
+
+func TestRunnerFiltersNegativePathMatchesAfterContentSearch(t *testing.T) {
+	argsPath := filepath.Join(t.TempDir(), "args")
+	script := fmt.Sprintf(`
+if [ "$1" = "--files" ]; then
+  exit 2
+fi
+printf '%%s\n' "$@" > %q
+printf '%%s\n' '{"type":"match","data":{"path":{"text":"/repo/src/main.go"},"lines":{"text":"foo\\n"},"line_number":1,"submatches":[]}}'
+printf '%%s\n' '{"type":"match","data":{"path":{"text":"/repo/src/main_test.go"},"lines":{"text":"foo\\n"},"line_number":2,"submatches":[]}}'
+`, argsPath)
+	runner := Runner{Binary: writeFakeRG(t, script)}
+
+	result, err := runner.Run(context.Background(), RunOptions{Pattern: "foo", Roots: []string{"/repo"}, Kinds: []SearchKind{SearchKindContent}, PathFilters: []PathFilter{{Include: false, Pattern: "test"}}})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if len(result.Matches) != 1 || result.Matches[0].Path != "/repo/src/main.go" {
+		t.Fatalf("matches = %#v, want only non-test content match", result.Matches)
+	}
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatalf("read args: %v", err)
+	}
+	argText := string(args)
+	if strings.Contains(argText, "--files") || strings.Contains(argText, "/repo/src/main_test.go") {
+		t.Fatalf("content args = %q, want direct root search without expanded file list", argText)
+	}
+}
+
+func TestRunnerChunksContentSearchFileLists(t *testing.T) {
+	roots := make([]string, 0, 2000)
+	for index := 0; index < 2000; index++ {
+		roots = append(roots, fmt.Sprintf("/repo/src/really-long-directory-name-%04d/file-%04d.go", index, index))
+	}
+	chunks, err := splitContentOptions(RunOptions{Pattern: "foo", Roots: roots})
+	if err != nil {
+		t.Fatalf("splitContentOptions returned error: %v", err)
+	}
+	if len(chunks) < 2 {
+		t.Fatalf("chunk count = %d, want multiple chunks", len(chunks))
+	}
+	for _, chunk := range chunks {
+		args, err := BuildArgs(chunk)
+		if err != nil {
+			t.Fatalf("BuildArgs returned error for chunk: %v", err)
+		}
+		if estimateArgBytes(args) > maxRipgrepArgBytes {
+			t.Fatalf("chunk args size = %d, max = %d", estimateArgBytes(args), maxRipgrepArgBytes)
+		}
 	}
 }
 

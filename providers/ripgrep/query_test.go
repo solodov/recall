@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestParseQueryKeepsLiteralSearchText(t *testing.T) {
+func TestParseQueryKeepsLiteralSearchTextAndDefaultsToPathAndContent(t *testing.T) {
 	query, err := ParseQuery("foo bar")
 	if err != nil {
 		t.Fatalf("ParseQuery returned error: %v", err)
@@ -14,21 +14,32 @@ func TestParseQueryKeepsLiteralSearchText(t *testing.T) {
 	if query.Pattern != "foo bar" {
 		t.Fatalf("pattern = %q, want literal text", query.Pattern)
 	}
-	if len(query.ExcludedScopes) != 0 {
-		t.Fatalf("excluded scopes = %#v, want none", query.ExcludedScopes)
+	if !reflect.DeepEqual(query.Kinds, []SearchKind{SearchKindPath, SearchKindContent}) {
+		t.Fatalf("kinds = %#v, want path and content", query.Kinds)
 	}
 }
 
-func TestParseQueryExcludesTestScope(t *testing.T) {
-	query, err := ParseQuery("foo -in:test")
+func TestParseQueryAcceptsKindSelector(t *testing.T) {
+	query, err := ParseQuery("foo -k path -k content -k path")
 	if err != nil {
 		t.Fatalf("ParseQuery returned error: %v", err)
+	}
+	if !reflect.DeepEqual(query.Kinds, []SearchKind{SearchKindPath, SearchKindContent}) {
+		t.Fatalf("kinds = %#v, want deduplicated path and content", query.Kinds)
 	}
 	if query.Pattern != "foo" {
 		t.Fatalf("pattern = %q, want foo", query.Pattern)
 	}
-	if !reflect.DeepEqual(query.ExcludedScopes, []Scope{ScopeTest}) {
-		t.Fatalf("excluded scopes = %#v, want test", query.ExcludedScopes)
+}
+
+func TestParseQueryIncludesPathFilters(t *testing.T) {
+	query, err := ParseQuery("foo in:internal/.*/config -in:generated")
+	if err != nil {
+		t.Fatalf("ParseQuery returned error: %v", err)
+	}
+	want := []PathFilter{{Include: true, Pattern: "internal/.*/config"}, {Include: false, Pattern: "generated"}}
+	if !reflect.DeepEqual(query.PathFilters, want) {
+		t.Fatalf("path filters = %#v, want %#v", query.PathFilters, want)
 	}
 }
 
@@ -43,22 +54,37 @@ func TestParseQueryIncludesFileTypes(t *testing.T) {
 	if !reflect.DeepEqual(query.FileTypes, []string{"go", "ts"}) {
 		t.Fatalf("file types = %#v, want go and ts", query.FileTypes)
 	}
-	if !reflect.DeepEqual(query.ExcludedScopes, []Scope{ScopeTest}) {
-		t.Fatalf("excluded scopes = %#v, want test", query.ExcludedScopes)
+	if !reflect.DeepEqual(query.PathFilters, []PathFilter{{Include: false, Pattern: "test"}}) {
+		t.Fatalf("path filters = %#v, want test exclusion regex", query.PathFilters)
+	}
+}
+
+func TestParseQueryAllowsPathOnlyFilterWithoutSearchText(t *testing.T) {
+	query, err := ParseQuery("in:router")
+	if err != nil {
+		t.Fatalf("ParseQuery returned error: %v", err)
+	}
+	if query.Pattern != "" || !reflect.DeepEqual(query.Kinds, []SearchKind{SearchKindPath}) {
+		t.Fatalf("query = %#v, want path-only filter query", query)
 	}
 }
 
 func TestParseQueryRejectsMissingSearchText(t *testing.T) {
 	_, err := ParseQuery("-in:test")
 	if err == nil || !strings.Contains(err.Error(), "search text") {
-		t.Fatalf("ParseQuery error = %v, want missing search text", err)
+		t.Fatalf("ParseQuery error = %v, want missing positive selector", err)
+	}
+
+	_, err = ParseQuery("-k path")
+	if err == nil || !strings.Contains(err.Error(), "search text") {
+		t.Fatalf("ParseQuery error = %v, want missing path search text", err)
 	}
 }
 
-func TestParseQueryRejectsUnsupportedScopeAndOperator(t *testing.T) {
-	_, err := ParseQuery("foo -in:docs")
-	if err == nil || !strings.Contains(err.Error(), "docs") {
-		t.Fatalf("unsupported scope error = %v", err)
+func TestParseQueryRejectsUnsupportedKindAndOperator(t *testing.T) {
+	_, err := ParseQuery("foo -k symbol")
+	if err == nil || !strings.Contains(err.Error(), "symbol") {
+		t.Fatalf("unsupported kind error = %v", err)
 	}
 
 	_, err = ParseQuery("foo -kind:go")
@@ -67,7 +93,7 @@ func TestParseQueryRejectsUnsupportedScopeAndOperator(t *testing.T) {
 	}
 }
 
-func TestParseQueryRejectsInvalidFileTypes(t *testing.T) {
+func TestParseQueryRejectsInvalidFileTypesAndPathFilters(t *testing.T) {
 	_, err := ParseQuery("foo type:")
 	if err == nil || !strings.Contains(err.Error(), "file type") {
 		t.Fatalf("empty type error = %v", err)
@@ -77,11 +103,9 @@ func TestParseQueryRejectsInvalidFileTypes(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("negative type error = %v", err)
 	}
-}
 
-func TestParseQueryRejectsPositiveInScopeForNow(t *testing.T) {
-	_, err := ParseQuery("foo in:test")
-	if err == nil || !strings.Contains(err.Error(), "not supported") {
-		t.Fatalf("positive scope error = %v, want unsupported", err)
+	_, err = ParseQuery("foo in:(")
+	if err == nil || !strings.Contains(err.Error(), "invalid") {
+		t.Fatalf("invalid path filter error = %v", err)
 	}
 }

@@ -29,26 +29,24 @@ Ripgrep hits include typed file targets with line and column metadata. Human out
 
 ## Query syntax
 
-The initial query language is intentionally small:
+The provider searches both file paths and file contents by default:
 
 ```text
-foo type:go -in:test
+router type:go in:internal -in:test
 ```
 
-- Free text becomes a literal ripgrep search pattern.
+- Free text searches file contents and also matches file paths by substring.
+- `-k path` returns only file-name/path matches.
+- `-k content` returns only content matches.
 - `type:foo` forwards `foo` as a ripgrep file type, equivalent to `rg --type foo`; repeat it to pass multiple types.
-- `-in:test` excludes test files and conventional test directories.
-- Positive `in:test` and negative `type:` filters are not supported yet.
+- `in:regex` keeps only root-relative file paths matching the regex.
+- `-in:regex` excludes root-relative file paths matching the regex.
+- Negative `type:` filters are not supported yet.
 
-`-in:test` maps to these ripgrep glob exclusions:
+A path-only query can omit free text when it has an inclusion filter:
 
 ```text
-!**/*_test.*
-!**/*.test.*
-!**/*.spec.*
-!**/test/**
-!**/tests/**
-!**/__tests__/**
+-k path in:router
 ```
 
 ## Direct provider debugging

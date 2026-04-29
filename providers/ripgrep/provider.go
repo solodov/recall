@@ -66,18 +66,19 @@ func (provider *Provider) Search(ctx context.Context, request *searchv1.SearchRe
 		runner = Runner{Binary: provider.ripgrepPath}
 	}
 	result, err := runner.Run(ctx, RunOptions{
-		Pattern:        query.Pattern,
-		Roots:          resolution.Roots,
-		FileTypes:      query.FileTypes,
-		ExcludedScopes: query.ExcludedScopes,
-		Limit:          limit,
+		Pattern:     query.Pattern,
+		Roots:       resolution.Roots,
+		Kinds:       query.Kinds,
+		FileTypes:   query.FileTypes,
+		PathFilters: query.PathFilters,
+		Limit:       limit,
 	})
 	if err != nil {
 		return nil, err
 	}
 	warnings := append([]*searchv1.Warning{}, resolution.Warnings...)
 	warnings = append(warnings, result.Warnings...)
-	return MatchesToSearchResponse(result.Matches, warnings, HitOptions{Roots: resolution.Roots}), nil
+	return SearchResponseFromRunResult(result, warnings, HitOptions{Roots: resolution.Roots}), nil
 }
 
 func (provider *Provider) resolveRoots() (RootResolution, error) {

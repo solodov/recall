@@ -55,7 +55,7 @@ func TestRipgrepProviderBinarySmokeUsesFakeRG(t *testing.T) {
 		t.Fatalf("read fake rg args: %v", err)
 	}
 	argLog := string(args)
-	for _, want := range []string{"--json", "--fixed-strings", "--type\ngo", "--glob\n!**/*_test.*", "foo", root} {
+	for _, want := range []string{"--json", "--fixed-strings", "--type\ngo", "foo", root} {
 		if !strings.Contains(argLog, want) {
 			t.Fatalf("fake rg args %q do not contain %q", argLog, want)
 		}
@@ -80,6 +80,10 @@ func writeFakeRipgrep(t *testing.T, argsPath string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "rg")
 	body := `#!/bin/sh
+if [ "$1" = "--files" ]; then
+  printf '%s\0' 'main.go'
+  exit 0
+fi
 printf '%s\n' "$@" > "$RECALL_RIPGREP_PROVIDER_TEST_ARGS"
 printf '%s\n' '{"type":"match","data":{"path":{"text":"main.go"},"lines":{"text":"foo()\n"},"line_number":4,"submatches":[{"match":{"text":"foo"},"start":0,"end":3}]}}'
 `
