@@ -34,7 +34,7 @@ controls and are not added to `SearchRequest`. When `limit` is absent,
 providers should return every reasonable match.
 
 Provider responses should return best-first hits with stable IDs, kinds, titles,
-named URIs, optional groups, optional source-domain timestamps, optional native
+open targets, optional groups, optional source-domain timestamps, optional native
 scores, and warnings. Native scores are preserved for diagnostics, but cross-source
 ranking uses provider-local result order and configured provider weight.
 
@@ -63,14 +63,14 @@ mirror the same format for the response. This keeps `recall` efficient with
 binary protobuf while letting operators pipe textproto directly to a provider:
 
 ```bash
-printf 'query: "deploy"\n' |
+printf 'query: "rollout"\n' |
   recall-example-provider /recall.search.v1.SearchProvider/Search
 ```
 
 Add `limit` only when you want to cap provider-local results:
 
 ```bash
-printf 'query: "deploy"\nlimit: 10\n' |
+printf 'query: "rollout"\nlimit: 10\n' |
   recall-example-provider /recall.search.v1.SearchProvider/Search
 ```
 
@@ -101,6 +101,18 @@ The SDK serves one `/recall.search.v1.SearchProvider/Search` stdio call,
 auto-detects binary protobuf or textproto input, mirrors the response format,
 and provides `RequestedLimit` for optional limit handling.
 
+## Open targets
+
+Hits and groups can expose typed open targets. `FileTarget` carries an absolute
+path plus optional 1-based line and column, while `UriTarget` carries a generic
+URI. Human output wraps primary targets in OSC 8 `recall://open?...` links so a
+terminal helper can pass the URL to `recall-open`.
+
+`recall-open` loads the same registry and matches optional `openers` by source,
+kind, target type, and URI scheme. Opener commands are local operator config and
+are executed without a shell; if no opener matches, `recall-open` falls back to
+the platform opener on the original path or URI.
+
 ## Future sources
 
 Future sources should integrate as independent providers instead of expanding the
@@ -108,9 +120,9 @@ core request schema:
 
 - Bash history can search a local file, SQLite FTS table, or source-specific
   index and return command hits.
-- Calendar providers can own recurrence expansion, time windows, attendees, and
+- Schedule providers can own recurrence expansion, time windows, attendees, and
   calendar authentication.
-- Gmail providers can own OAuth, API quotas, labels, snippets, and thread URIs.
+- Message providers can own OAuth, API quotas, labels, snippets, and thread URIs.
 - API-backed sources can run as stdio providers or gRPC services while keeping
   credentials and caching outside recall core.
 

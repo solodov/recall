@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"net/url"
+	"path/filepath"
 	"strings"
 
 	searchv1 "github.com/solodov/recall/proto/recall/search/v1"
@@ -133,8 +134,8 @@ func validateHit(location string, hit *searchv1.SearchHit) []error {
 			problems = append(problems, fmt.Errorf("%s.score must be finite", location))
 		}
 	}
-	for index, uri := range hit.GetUris() {
-		problems = append(problems, validateNamedURI(fmt.Sprintf("%s.uris[%d]", location, index), uri)...)
+	for index, target := range hit.GetTargets() {
+		problems = append(problems, validateOpenTarget(fmt.Sprintf("%s.targets[%d]", location, index), target)...)
 	}
 	if group := hit.GetGroup(); group != nil {
 		problems = append(problems, validateGroup(location+".group", group)...)
@@ -159,31 +160,69 @@ func validateGroup(location string, group *searchv1.SearchGroup) []error {
 	if strings.TrimSpace(group.GetTitle()) == "" {
 		problems = append(problems, fmt.Errorf("%s.title is required", location))
 	}
-	for index, uri := range group.GetUris() {
-		problems = append(problems, validateNamedURI(fmt.Sprintf("%s.uris[%d]", location, index), uri)...)
+	for index, target := range group.GetTargets() {
+		problems = append(problems, validateOpenTarget(fmt.Sprintf("%s.targets[%d]", location, index), target)...)
 	}
 	return problems
 }
 
-func validateNamedURI(location string, namedURI *searchv1.NamedUri) []error {
-	if namedURI == nil {
+func validateOpenTarget(location string, target *searchv1.OpenTarget) []error {
+	if target == nil {
+		return []error{fmt.Errorf("%s is nil", location)}
+	}
+
+	switch value := target.GetTarget().(type) {
+	case *searchv1.OpenTarget_Uri:
+		return validateURITarget(location+".uri", value.Uri)
+	case *searchv1.OpenTarget_File:
+		return validateFileTarget(location+".file", value.File)
+	case nil:
+		return []error{fmt.Errorf("%s.target is required", location)}
+	default:
+		return []error{fmt.Errorf("%s.target has unsupported type %T", location, value)}
+	}
+}
+
+func validateURITarget(location string, target *searchv1.UriTarget) []error {
+	if target == nil {
+		return []error{fmt.Errorf("%s is nil", location)}
+	}
+	uriValue := strings.TrimSpace(target.GetUri())
+	if uriValue == "" {
+		return []error{fmt.Errorf("%s.uri is required", location)}
+	}
+	parsed, err := url.Parse(uriValue)
+	if err != nil {
+		return []error{fmt.Errorf("%s.uri is malformed: %w", location, err)}
+	}
+	if parsed.Scheme == "" {
+		return []error{fmt.Errorf("%s.uri must include a scheme", location)}
+	}
+	return nil
+}
+
+func validateFileTarget(location string, target *searchv1.FileTarget) []error {
+	if target == nil {
 		return []error{fmt.Errorf("%s is nil", location)}
 	}
 
 	var problems []error
-	if strings.TrimSpace(namedURI.GetName()) == "" {
-		problems = append(problems, fmt.Errorf("%s.name is required", location))
+	path := strings.TrimSpace(target.GetPath())
+	if path == "" {
+		problems = append(problems, fmt.Errorf("%s.path is required", location))
+	} else if !filepath.IsAbs(path) {
+		problems = append(problems, fmt.Errorf("%s.path must be absolute", location))
 	}
-	uriValue := strings.TrimSpace(namedURI.GetUri())
-	if uriValue == "" {
-		problems = append(problems, fmt.Errorf("%s.uri is required", location))
-		return problems
+	if target.Line != nil && target.GetLine() == 0 {
+		problems = append(problems, fmt.Errorf("%s.line must be positive when present", location))
 	}
-	parsed, err := url.Parse(uriValue)
-	if err != nil {
-		problems = append(problems, fmt.Errorf("%s.uri is malformed: %w", location, err))
-	} else if parsed.Scheme == "" {
-		problems = append(problems, fmt.Errorf("%s.uri must include a scheme", location))
+	if target.Column != nil {
+		if target.GetColumn() == 0 {
+			problems = append(problems, fmt.Errorf("%s.column must be positive when present", location))
+		}
+		if target.Line == nil {
+			problems = append(problems, fmt.Errorf("%s.column requires line", location))
+		}
 	}
 	return problems
 }

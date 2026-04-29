@@ -15,7 +15,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func TestWriteHumanRendersNamedURIsMetadataAndWarnings(t *testing.T) {
+func TestWriteHumanRendersOpenTargetsMetadataAndWarnings(t *testing.T) {
 	var output bytes.Buffer
 	result := renderFixtureResult()
 
@@ -23,16 +23,20 @@ func TestWriteHumanRendersNamedURIsMetadataAndWarnings(t *testing.T) {
 		t.Fatalf("WriteHuman returned error: %v", err)
 	}
 
-	text := output.String()
+	rawText := output.String()
+	text := stripOSC8(rawText)
 	for _, want := range []string{
-		"[example] Deploy notes <file:///tmp/deploy.md> (note) 2026-04-28T09:30:00Z",
-		"matched deploy context",
-		"actions: web=https://example.invalid/deploy source=file:///tmp/source.md",
+		"[example] Sample rollout note (note) 2026-04-28T09:30:00Z",
+		"matched rollout context",
+		"actions: https file",
 		"[example] warning: fixture warning",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("human output %q does not contain %q", text, want)
 		}
+	}
+	if !strings.Contains(rawText, "recall://open?") || !strings.Contains(rawText, "type=file") {
+		t.Fatalf("human output %q does not contain recall OSC8 target", rawText)
 	}
 }
 
@@ -44,17 +48,62 @@ func TestWriteHumanGroupedUsesSourceAndProviderGroups(t *testing.T) {
 		t.Fatalf("WriteHuman grouped returned error: %v", err)
 	}
 
-	text := output.String()
+	text := stripOSC8(output.String())
 	for _, want := range []string{
 		"# example",
-		"## Runbooks <file:///tmp/runbooks>",
-		"  [example] Deploy notes <file:///tmp/deploy.md> (note) 2026-04-28T09:30:00Z",
+		"## Procedure notes",
+		"  [example] Sample rollout note (note) 2026-04-28T09:30:00Z",
 		"## Ungrouped",
-		"  [example] Loose hit <file:///tmp/loose.md> (note)",
+		"  [example] Loose hit (note)",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("grouped output %q does not contain %q", text, want)
 		}
+	}
+}
+
+func TestWriteHumanRendersCodeMatchesCompactly(t *testing.T) {
+	var output bytes.Buffer
+	result := codeMatchResult()
+
+	if err := WriteHuman(&output, result, HumanOptions{}); err != nil {
+		t.Fatalf("WriteHuman returned error: %v", err)
+	}
+
+	rawText := output.String()
+	text := stripOSC8(rawText)
+	for _, want := range []string{
+		"[code] styleguide/kotlin/formatting.md:51:11",
+		"  fun createSampleItem(flavor: Flavor): SampleItem = when(flavor) {",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("code output %q does not contain %q", text, want)
+		}
+	}
+	for _, unwanted := range []string{"file:///workspace/codebase/styleguide/kotlin/formatting.md", "(code_match)"} {
+		if strings.Contains(text, unwanted) {
+			t.Fatalf("code output %q contains noisy metadata %q", text, unwanted)
+		}
+	}
+	if !strings.Contains(rawText, "recall://open?") || !strings.Contains(rawText, "path=%2Fworkspace%2Fcodebase%2Fstyleguide%2Fkotlin%2Fformatting.md") {
+		t.Fatalf("code output %q does not contain file recall target", rawText)
+	}
+}
+
+func TestWriteHumanGroupedOmitsCodeFileURIFromGroupHeader(t *testing.T) {
+	var output bytes.Buffer
+	result := codeMatchResult()
+
+	if err := WriteHuman(&output, result, HumanOptions{Grouped: true}); err != nil {
+		t.Fatalf("WriteHuman grouped returned error: %v", err)
+	}
+
+	text := stripOSC8(output.String())
+	if !strings.Contains(text, "## styleguide/kotlin/formatting.md\n") {
+		t.Fatalf("grouped code output %q does not contain compact file header", text)
+	}
+	if strings.Contains(text, "## styleguide/kotlin/formatting.md <file://") {
+		t.Fatalf("grouped code output %q contains noisy file URI in header", text)
 	}
 }
 
@@ -77,10 +126,14 @@ func TestWriteJSONPreservesProviderResponsesAndFailures(t *testing.T) {
 					Title      string `json:"title"`
 					Snippet    string `json:"snippet"`
 					OccurredAt string `json:"occurred_at"`
-					Uris       []struct {
-						Name string `json:"name"`
-						URI  string `json:"uri"`
-					} `json:"uris"`
+					Targets    []struct {
+						URI struct {
+							URI string `json:"uri"`
+						} `json:"uri"`
+						File struct {
+							Path string `json:"path"`
+						} `json:"file"`
+					} `json:"targets"`
 					Group struct {
 						Key   string `json:"key"`
 						Title string `json:"title"`
@@ -108,7 +161,7 @@ func TestWriteJSONPreservesProviderResponsesAndFailures(t *testing.T) {
 	if len(hits) != 2 {
 		t.Fatalf("hit count = %d, want 2", len(hits))
 	}
-	if hits[0].ID != "deploy" || hits[0].Uris[0].URI != "file:///tmp/deploy.md" || hits[0].Group.Key != "runbooks" {
+	if hits[0].ID != "rollout" || hits[0].Targets[0].File.Path != "/tmp/rollout.md" || hits[0].Group.Key != "procedures" {
 		t.Fatalf("first hit did not preserve fields: %#v", hits[0])
 	}
 	if payload.Responses[0].Response.Warnings[0].Code != "fixture_warning" {
@@ -119,43 +172,96 @@ func TestWriteJSONPreservesProviderResponsesAndFailures(t *testing.T) {
 	}
 }
 
+func codeMatchResult() *orchestrator.Result {
+	hit := &searchv1.SearchHit{
+		Id:      "code_match:/workspace/codebase/styleguide/kotlin/formatting.md:51:11",
+		Kind:    "code_match",
+		Title:   "styleguide/kotlin/formatting.md:51:11",
+		Snippet: proto.String("fun createSampleItem(flavor: Flavor): SampleItem = when(flavor) {"),
+		Targets: []*searchv1.OpenTarget{fileTarget("/workspace/codebase/styleguide/kotlin/formatting.md", 51, 11)},
+		Group: &searchv1.SearchGroup{
+			Key:     "styleguide/kotlin/formatting.md",
+			Title:   "styleguide/kotlin/formatting.md",
+			Targets: []*searchv1.OpenTarget{fileTarget("/workspace/codebase/styleguide/kotlin/formatting.md", 0, 0)},
+		},
+	}
+	return &orchestrator.Result{Responses: []orchestrator.ProviderResponse{{
+		ProviderID: "code",
+		Hits: []normalize.Hit{{
+			ProviderID:   "code",
+			ProviderRank: 1,
+			Hit:          hit,
+		}},
+		Raw: &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{hit}},
+	}}}
+}
+
 func renderFixtureResult() *orchestrator.Result {
 	occurredAt := timestamppb.New(time.Date(2026, 4, 28, 9, 30, 0, 0, time.UTC))
-	deployHit := &searchv1.SearchHit{
-		Id:         "deploy",
+	rolloutHit := &searchv1.SearchHit{
+		Id:         "rollout",
 		Kind:       "note",
-		Title:      "Deploy notes",
-		Snippet:    proto.String("matched deploy context"),
+		Title:      "Sample rollout note",
+		Snippet:    proto.String("matched rollout context"),
 		Score:      proto.Float64(1.2),
 		OccurredAt: occurredAt,
-		Uris: []*searchv1.NamedUri{
-			{Name: "open", Uri: "file:///tmp/deploy.md"},
-			{Name: "web", Uri: "https://example.invalid/deploy"},
-			{Name: "source", Uri: "file:///tmp/source.md"},
+		Targets: []*searchv1.OpenTarget{
+			fileTarget("/tmp/rollout.md", 0, 0),
+			uriTarget("https://example.invalid/rollout"),
+			fileTarget("/tmp/source.md", 0, 0),
 		},
 		Group: &searchv1.SearchGroup{
-			Key:   "runbooks",
-			Title: "Runbooks",
-			Uris:  []*searchv1.NamedUri{{Name: "open", Uri: "file:///tmp/runbooks"}},
+			Key:     "procedures",
+			Title:   "Procedure notes",
+			Targets: []*searchv1.OpenTarget{fileTarget("/tmp/procedures", 0, 0)},
 		},
 	}
 	looseHit := &searchv1.SearchHit{
-		Id:    "loose",
-		Kind:  "note",
-		Title: "Loose hit",
-		Uris:  []*searchv1.NamedUri{{Name: "open", Uri: "file:///tmp/loose.md"}},
+		Id:      "loose",
+		Kind:    "note",
+		Title:   "Loose hit",
+		Targets: []*searchv1.OpenTarget{fileTarget("/tmp/loose.md", 0, 0)},
 	}
 	warning := &searchv1.Warning{Message: "fixture warning", Code: proto.String("fixture_warning")}
-	raw := &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{deployHit, looseHit}, Warnings: []*searchv1.Warning{warning}}
+	raw := &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{rolloutHit, looseHit}, Warnings: []*searchv1.Warning{warning}}
 	return &orchestrator.Result{Responses: []orchestrator.ProviderResponse{{
 		ProviderID: "example",
 		Hits: []normalize.Hit{
-			{ProviderID: "example", ProviderRank: 1, Hit: deployHit},
+			{ProviderID: "example", ProviderRank: 1, Hit: rolloutHit},
 			{ProviderID: "example", ProviderRank: 2, Hit: looseHit},
 		},
 		Warnings: []normalize.Warning{{ProviderID: "example", Warning: warning}},
 		Raw:      raw,
 	}}}
+}
+
+func uriTarget(uri string) *searchv1.OpenTarget {
+	return &searchv1.OpenTarget{Target: &searchv1.OpenTarget_Uri{Uri: &searchv1.UriTarget{Uri: uri}}}
+}
+
+func fileTarget(path string, line uint32, column uint32) *searchv1.OpenTarget {
+	target := &searchv1.FileTarget{Path: path}
+	if line > 0 {
+		target.Line = proto.Uint32(line)
+	}
+	if column > 0 {
+		target.Column = proto.Uint32(column)
+	}
+	return &searchv1.OpenTarget{Target: &searchv1.OpenTarget_File{File: target}}
+}
+
+func stripOSC8(text string) string {
+	for {
+		start := strings.Index(text, "\x1b]8;;")
+		if start == -1 {
+			return text
+		}
+		end := strings.Index(text[start:], "\x1b\\")
+		if end == -1 {
+			return text
+		}
+		text = text[:start] + text[start+end+2:]
+	}
 }
 
 type assertErr string

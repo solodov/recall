@@ -40,7 +40,7 @@ providers {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	app := App{Stdout: &stdout, Stderr: &stderr}
-	if err := app.Run(context.Background(), []string{"--format", "json", "deploy"}); err != nil {
+	if err := app.Run(context.Background(), []string{"--format", "json", "rollout"}); err != nil {
 		t.Fatalf("recall sample-provider search failed: %v\nstderr: %s", err, stderr.String())
 	}
 	if stderr.Len() != 0 {
@@ -52,13 +52,17 @@ providers {
 			ProviderID string `json:"provider_id"`
 			Response   struct {
 				Hits []struct {
-					ID    string `json:"id"`
-					Kind  string `json:"kind"`
-					Title string `json:"title"`
-					Uris  []struct {
-						Name string `json:"name"`
-						URI  string `json:"uri"`
-					} `json:"uris"`
+					ID      string `json:"id"`
+					Kind    string `json:"kind"`
+					Title   string `json:"title"`
+					Targets []struct {
+						URI struct {
+							URI string `json:"uri"`
+						} `json:"uri"`
+						File struct {
+							Path string `json:"path"`
+						} `json:"file"`
+					} `json:"targets"`
 					Group struct {
 						Key   string `json:"key"`
 						Title string `json:"title"`
@@ -85,16 +89,16 @@ providers {
 	if len(hits) != 1 {
 		t.Fatalf("provider hit count = %d, want 1", len(hits))
 	}
-	if hits[0].ID != "example:deploy-notes" || hits[0].Kind != "note" || hits[0].Title != "Deploy notes" {
+	if hits[0].ID != "example:rollout-note" || hits[0].Kind != "note" || hits[0].Title != "Sample rollout note" {
 		t.Fatalf("sample provider hit did not preserve search contract fields: %#v", hits[0])
 	}
-	if len(hits[0].Uris) < 2 || hits[0].Uris[0].Name != "open" || hits[0].Uris[0].URI == "" {
-		t.Fatalf("sample provider hit did not exercise primary and secondary named URIs: %#v", hits[0].Uris)
+	if len(hits[0].Targets) < 2 || hits[0].Targets[0].File.Path == "" || hits[0].Targets[1].URI.URI == "" {
+		t.Fatalf("sample provider hit did not exercise primary and secondary open targets: %#v", hits[0].Targets)
 	}
-	if hits[0].Group.Key != "fixture:runbooks" || hits[0].Group.Title != "Runbooks" {
+	if hits[0].Group.Key != "fixture:procedures" || hits[0].Group.Title != "Procedure notes" {
 		t.Fatalf("sample provider hit did not exercise grouping: %#v", hits[0].Group)
 	}
-	if len(payload.BlendedHits) != 1 || payload.BlendedHits[0].ProviderID != "example" || payload.BlendedHits[0].ProviderRank != 1 || payload.BlendedHits[0].Hit.ID != "example:deploy-notes" {
+	if len(payload.BlendedHits) != 1 || payload.BlendedHits[0].ProviderID != "example" || payload.BlendedHits[0].ProviderRank != 1 || payload.BlendedHits[0].Hit.ID != "example:rollout-note" {
 		t.Fatalf("blended hits = %#v, want one ranked example hit", payload.BlendedHits)
 	}
 	if payload.BlendedHits[0].BlendedScore <= 0 {

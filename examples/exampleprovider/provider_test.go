@@ -13,7 +13,7 @@ import (
 )
 
 func TestServeSearchBinaryExercisesContractFields(t *testing.T) {
-	stdout := serveOneBinary(t, &searchv1.SearchRequest{Query: "deploy", Limit: proto.Uint32(5)})
+	stdout := serveOneBinary(t, &searchv1.SearchRequest{Query: "rollout", Limit: proto.Uint32(5)})
 
 	response := &searchv1.SearchResponse{}
 	if err := proto.Unmarshal(stdout, response); err != nil {
@@ -23,7 +23,7 @@ func TestServeSearchBinaryExercisesContractFields(t *testing.T) {
 }
 
 func TestServeSearchTextprotoAutoDetectsAndMirrorsInput(t *testing.T) {
-	requestBytes, err := prototext.Marshal(&searchv1.SearchRequest{Query: "alice meeting"})
+	requestBytes, err := prototext.Marshal(&searchv1.SearchRequest{Query: "planning session"})
 	if err != nil {
 		t.Fatalf("marshal textproto request: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestServeSearchTextprotoAutoDetectsAndMirrorsInput(t *testing.T) {
 	if err := prototext.Unmarshal(stdout.Bytes(), response); err != nil {
 		t.Fatalf("unmarshal textproto search response: %v", err)
 	}
-	if len(response.GetHits()) != 1 || response.GetHits()[0].GetId() != "example:alice-meeting" {
+	if len(response.GetHits()) != 1 || response.GetHits()[0].GetId() != "example:planning-session" {
 		t.Fatalf("unexpected textproto hits: %#v", response.GetHits())
 	}
 }
@@ -88,19 +88,19 @@ func assertExampleSearchResponse(t *testing.T, response *searchv1.SearchResponse
 		t.Fatalf("hit count = %d, want 1", len(hits))
 	}
 	hit := hits[0]
-	if hit.GetId() != "example:deploy-notes" {
-		t.Fatalf("hit id = %q, want example:deploy-notes", hit.GetId())
+	if hit.GetId() != "example:rollout-note" {
+		t.Fatalf("hit id = %q, want example:rollout-note", hit.GetId())
 	}
-	if hit.GetKind() != "note" || hit.GetTitle() != "Deploy notes" || hit.GetSnippet() == "" {
+	if hit.GetKind() != "note" || hit.GetTitle() != "Sample rollout note" || hit.GetSnippet() == "" {
 		t.Fatalf("hit missing required display fields: %#v", hit)
 	}
 	if hit.Score == nil {
 		t.Fatal("hit score is nil")
 	}
-	if len(hit.GetUris()) < 2 || hit.GetUris()[0].GetName() != "open" || hit.GetUris()[0].GetUri() == "" {
-		t.Fatalf("hit URIs do not exercise named primary/secondary actions: %#v", hit.GetUris())
+	if len(hit.GetTargets()) < 2 || hit.GetTargets()[0].GetFile().GetPath() == "" || hit.GetTargets()[1].GetUri().GetUri() == "" {
+		t.Fatalf("hit targets do not exercise primary and secondary open targets: %#v", hit.GetTargets())
 	}
-	if hit.GetGroup().GetKey() == "" || hit.GetGroup().GetTitle() == "" || len(hit.GetGroup().GetUris()) == 0 {
+	if hit.GetGroup().GetKey() == "" || hit.GetGroup().GetTitle() == "" || len(hit.GetGroup().GetTargets()) == 0 {
 		t.Fatalf("hit group does not exercise grouping fields: %#v", hit.GetGroup())
 	}
 	if hit.GetOccurredAt() == nil || !hit.GetOccurredAt().IsValid() {

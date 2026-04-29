@@ -20,14 +20,13 @@ func TestSearchResponseAnnotatesValidatedHitsAndWarnings(t *testing.T) {
 				Title:   "First hit",
 				Snippet: proto.String("matched context"),
 				Score:   proto.Float64(1.23),
-				Uris: []*searchv1.NamedUri{{
-					Name: "open",
-					Uri:  "file:///tmp/first.md",
-				}},
+				Targets: []*searchv1.OpenTarget{
+					fileTarget("/tmp/first.md", 12, 3),
+				},
 				Group: &searchv1.SearchGroup{
-					Key:   "group-1",
-					Title: "Group one",
-					Uris:  []*searchv1.NamedUri{{Name: "open", Uri: "file:///tmp"}},
+					Key:     "group-1",
+					Title:   "Group one",
+					Targets: []*searchv1.OpenTarget{fileTarget("/tmp", 0, 0)},
 				},
 				OccurredAt: timestamppb.Now(),
 			},
@@ -73,21 +72,21 @@ func TestSearchResponseAllowsZeroHits(t *testing.T) {
 	}
 }
 
-func TestSearchResponseRejectsMalformedHitsGroupsURIsAndWarnings(t *testing.T) {
+func TestSearchResponseRejectsMalformedHitsGroupsTargetsAndWarnings(t *testing.T) {
 	response := &searchv1.SearchResponse{
 		Hits: []*searchv1.SearchHit{
 			{
 				Id:    "",
 				Kind:  "",
 				Title: "",
-				Uris: []*searchv1.NamedUri{{
-					Name: "",
-					Uri:  "relative/path",
-				}},
+				Targets: []*searchv1.OpenTarget{
+					{Target: &searchv1.OpenTarget_Uri{Uri: &searchv1.UriTarget{Uri: "relative/path"}}},
+					{Target: &searchv1.OpenTarget_File{File: &searchv1.FileTarget{Path: "relative/path", Column: proto.Uint32(2)}}},
+				},
 				Group: &searchv1.SearchGroup{
-					Key:   "",
-					Title: "",
-					Uris:  []*searchv1.NamedUri{{Name: "open", Uri: ""}},
+					Key:     "",
+					Title:   "",
+					Targets: []*searchv1.OpenTarget{{Target: &searchv1.OpenTarget_Uri{Uri: &searchv1.UriTarget{Uri: ""}}}},
 				},
 				OccurredAt: &timestamppb.Timestamp{Seconds: 253402300800},
 			},
@@ -104,11 +103,12 @@ func TestSearchResponseRejectsMalformedHitsGroupsURIsAndWarnings(t *testing.T) {
 		"hits[0].id",
 		"hits[0].kind",
 		"hits[0].title",
-		"hits[0].uris[0].name",
-		"hits[0].uris[0].uri must include a scheme",
+		"hits[0].targets[0].uri.uri must include a scheme",
+		"hits[0].targets[1].file.path must be absolute",
+		"hits[0].targets[1].file.column requires line",
 		"hits[0].group.key",
 		"hits[0].group.title",
-		"hits[0].group.uris[0].uri",
+		"hits[0].group.targets[0].uri.uri",
 		"hits[0].occurred_at",
 		"warnings[0].message",
 		"warnings[0].code",
@@ -158,6 +158,17 @@ func TestFilterKindsKeepsOnlyRequestedKindsAfterProviderSearch(t *testing.T) {
 	if len(filtered.Raw.GetHits()) != 1 || filtered.Raw.GetHits()[0].GetId() != "event-1" {
 		t.Fatalf("filtered raw response = %#v, want only event hit", filtered.Raw)
 	}
+}
+
+func fileTarget(path string, line uint32, column uint32) *searchv1.OpenTarget {
+	target := &searchv1.FileTarget{Path: path}
+	if line > 0 {
+		target.Line = proto.Uint32(line)
+	}
+	if column > 0 {
+		target.Column = proto.Uint32(column)
+	}
+	return &searchv1.OpenTarget{Target: &searchv1.OpenTarget_File{File: target}}
 }
 
 func firstError(_ ProviderResponse, err error) error {

@@ -24,7 +24,7 @@ providers {
 EOF
 
 if (($# == 0)); then
-  set -- deploy
+  set -- rollout
 fi
 
 exec "${repo_root}/dist/recall" --config "${config_path}" "$@"

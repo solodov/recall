@@ -118,6 +118,16 @@ func Validate(cfg *configv1.RecallConfig) error {
 		}
 	}
 
+	seenOpenerIDs := make(map[string]struct{}, len(cfg.GetOpeners()))
+	for index, opener := range cfg.GetOpeners() {
+		location := fmt.Sprintf("openers[%d]", index)
+		if opener == nil {
+			problems = append(problems, fmt.Errorf("%s is nil", location))
+			continue
+		}
+		problems = append(problems, validateOpener(location, opener, seenOpenerIDs)...)
+	}
+
 	return errors.Join(problems...)
 }
 
@@ -157,4 +167,64 @@ func validateGrpcTransport(location string, transport *configv1.GrpcTransport) [
 		return []error{fmt.Errorf("%s.grpc.endpoint is required", location)}
 	}
 	return nil
+}
+
+func validateOpener(location string, opener *configv1.Opener, seen map[string]struct{}) []error {
+	var problems []error
+	id := strings.TrimSpace(opener.GetId())
+	if id == "" {
+		problems = append(problems, fmt.Errorf("%s.id is required", location))
+	} else if !providerIDPattern.MatchString(id) {
+		problems = append(problems, fmt.Errorf("%s.id %q must start with an ASCII letter or digit and contain only ASCII letters, digits, '.', '_', or '-'", location, id))
+	} else if _, exists := seen[id]; exists {
+		problems = append(problems, fmt.Errorf("%s.id %q is duplicated", location, id))
+	} else {
+		seen[id] = struct{}{}
+	}
+
+	if strings.TrimSpace(opener.GetCommand()) == "" {
+		problems = append(problems, fmt.Errorf("%s.command is required", location))
+	}
+	problems = append(problems, validateFilterList(location+".sources", opener.GetSources(), providerIDPattern)...)
+	problems = append(problems, validateFilterList(location+".kinds", opener.GetKinds(), nil)...)
+	problems = append(problems, validateTargetTypes(location+".target_types", opener.GetTargetTypes())...)
+	problems = append(problems, validateFilterList(location+".uri_schemes", opener.GetUriSchemes(), nil)...)
+	return problems
+}
+
+func validateFilterList(location string, values []string, pattern *regexp.Regexp) []error {
+	var problems []error
+	seen := map[string]struct{}{}
+	for index, value := range values {
+		value = strings.TrimSpace(value)
+		itemLocation := fmt.Sprintf("%s[%d]", location, index)
+		if value == "" {
+			problems = append(problems, fmt.Errorf("%s must be non-empty", itemLocation))
+			continue
+		}
+		if pattern != nil && !pattern.MatchString(value) {
+			problems = append(problems, fmt.Errorf("%s %q is invalid", itemLocation, value))
+		}
+		if _, exists := seen[value]; exists {
+			problems = append(problems, fmt.Errorf("%s %q is duplicated", itemLocation, value))
+		}
+		seen[value] = struct{}{}
+	}
+	return problems
+}
+
+func validateTargetTypes(location string, values []string) []error {
+	var problems []error
+	for index, value := range values {
+		value = strings.TrimSpace(value)
+		switch value {
+		case "file", "uri":
+		case "":
+			problems = append(problems, fmt.Errorf("%s[%d] must be non-empty", location, index))
+		default:
+			problems = append(problems, fmt.Errorf("%s[%d] %q must be file or uri", location, index, value))
+		}
+	}
+	problems = append(problems, validateFilterList(location, values, nil)...)
+	return problems
 }

@@ -83,7 +83,7 @@ type fixtureDocument struct {
 	title      string
 	snippet    string
 	score      float64
-	uris       []*searchv1.NamedUri
+	targets    []*searchv1.OpenTarget
 	group      *searchv1.SearchGroup
 	occurredAt time.Time
 }
@@ -111,7 +111,7 @@ func (document fixtureDocument) hit() *searchv1.SearchHit {
 		Title:      document.title,
 		Snippet:    proto.String(document.snippet),
 		Score:      proto.Float64(document.score),
-		Uris:       cloneNamedURIs(document.uris),
+		Targets:    cloneOpenTargets(document.targets),
 		Group:      cloneGroup(document.group),
 		OccurredAt: timestamppb.New(document.occurredAt),
 	}
@@ -120,36 +120,36 @@ func (document fixtureDocument) hit() *searchv1.SearchHit {
 func defaultFixtureDocuments() []fixtureDocument {
 	documents := []fixtureDocument{
 		{
-			id:      "example:deploy-notes",
+			id:      "example:rollout-note",
 			kind:    "note",
-			title:   "Deploy notes",
-			snippet: "Checklist for staged deploys, rollback commands, and release verification.",
+			title:   "Sample rollout note",
+			snippet: "Checklist for staged rollouts, fallback commands, and verification steps.",
 			score:   0.98,
-			uris: []*searchv1.NamedUri{
-				{Name: "open", Uri: "file:///tmp/recall-example/deploy-notes.md"},
-				{Name: "web", Uri: "https://example.invalid/recall/deploy-notes"},
+			targets: []*searchv1.OpenTarget{
+				fileTarget("/tmp/recall-example/rollout-note.md", 0, 0),
+				uriTarget("https://example.invalid/recall/rollout-note"),
 			},
 			group: &searchv1.SearchGroup{
-				Key:   "fixture:runbooks",
-				Title: "Runbooks",
-				Uris:  []*searchv1.NamedUri{{Name: "open", Uri: "file:///tmp/recall-example/runbooks"}},
+				Key:     "fixture:procedures",
+				Title:   "Procedure notes",
+				Targets: []*searchv1.OpenTarget{fileTarget("/tmp/recall-example/procedures", 0, 0)},
 			},
 			occurredAt: time.Date(2026, 4, 28, 9, 30, 0, 0, time.UTC),
 		},
 		{
-			id:      "example:alice-meeting",
+			id:      "example:planning-session",
 			kind:    "event",
-			title:   "Alice project meeting",
-			snippet: "Calendar event covering launch risks, owners, and follow-up notes.",
+			title:   "Fixture planning session",
+			snippet: "Synthetic calendar event covering risks, owners, and follow-up notes.",
 			score:   0.91,
-			uris: []*searchv1.NamedUri{
-				{Name: "event", Uri: "https://calendar.example.invalid/event/alice-project-meeting"},
-				{Name: "notes", Uri: "file:///tmp/recall-example/alice-meeting.md"},
+			targets: []*searchv1.OpenTarget{
+				uriTarget("https://calendar.example.invalid/event/planning-session"),
+				fileTarget("/tmp/recall-example/planning-session.md", 0, 0),
 			},
 			group: &searchv1.SearchGroup{
-				Key:   "fixture:calendar",
-				Title: "Calendar",
-				Uris:  []*searchv1.NamedUri{{Name: "web", Uri: "https://calendar.example.invalid"}},
+				Key:     "fixture:schedule",
+				Title:   "Schedule",
+				Targets: []*searchv1.OpenTarget{uriTarget("https://calendar.example.invalid")},
 			},
 			occurredAt: time.Date(2026, 4, 27, 16, 0, 0, 0, time.UTC),
 		},
@@ -159,13 +159,13 @@ func defaultFixtureDocuments() []fixtureDocument {
 			title:   "Recall provider design",
 			snippet: "Federated search design using protobuf SearchProvider and stdio RPC.",
 			score:   0.87,
-			uris: []*searchv1.NamedUri{
-				{Name: "open", Uri: "file:///tmp/recall-example/recall-provider-design.md"},
+			targets: []*searchv1.OpenTarget{
+				fileTarget("/tmp/recall-example/recall-provider-design.md", 0, 0),
 			},
 			group: &searchv1.SearchGroup{
-				Key:   "fixture:design",
-				Title: "Design notes",
-				Uris:  []*searchv1.NamedUri{{Name: "open", Uri: "file:///tmp/recall-example/design"}},
+				Key:     "fixture:design",
+				Title:   "Design notes",
+				Targets: []*searchv1.OpenTarget{fileTarget("/tmp/recall-example/design", 0, 0)},
 			},
 			occurredAt: time.Date(2026, 4, 26, 11, 15, 0, 0, time.UTC),
 		},
@@ -176,10 +176,25 @@ func defaultFixtureDocuments() []fixtureDocument {
 	return documents
 }
 
-func cloneNamedURIs(uris []*searchv1.NamedUri) []*searchv1.NamedUri {
-	cloned := make([]*searchv1.NamedUri, 0, len(uris))
-	for _, uri := range uris {
-		cloned = append(cloned, proto.Clone(uri).(*searchv1.NamedUri))
+func uriTarget(uri string) *searchv1.OpenTarget {
+	return &searchv1.OpenTarget{Target: &searchv1.OpenTarget_Uri{Uri: &searchv1.UriTarget{Uri: uri}}}
+}
+
+func fileTarget(path string, line uint32, column uint32) *searchv1.OpenTarget {
+	target := &searchv1.FileTarget{Path: path}
+	if line > 0 {
+		target.Line = proto.Uint32(line)
+	}
+	if column > 0 {
+		target.Column = proto.Uint32(column)
+	}
+	return &searchv1.OpenTarget{Target: &searchv1.OpenTarget_File{File: target}}
+}
+
+func cloneOpenTargets(targets []*searchv1.OpenTarget) []*searchv1.OpenTarget {
+	cloned := make([]*searchv1.OpenTarget, 0, len(targets))
+	for _, target := range targets {
+		cloned = append(cloned, proto.Clone(target).(*searchv1.OpenTarget))
 	}
 	return cloned
 }

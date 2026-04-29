@@ -1,10 +1,12 @@
-// Package render owns recall's provider-agnostic presentation rules.
+// Package render owns recall's provider-independent presentation rules.
 package render
 
 import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,8 +24,9 @@ type HumanOptions struct {
 	Grouped bool
 }
 
-// WriteHuman renders normalized results with generic named-URI and grouping
-// rules. Providers supply data only; recall decides how it is presented.
+// WriteHuman renders normalized results with compact terminal-oriented rules.
+// Providers supply data only; recall chooses how to display common result kinds,
+// open targets, snippets, groups, and warnings.
 func WriteHuman(writer io.Writer, result *orchestrator.Result, options HumanOptions) error {
 	if result == nil {
 		return nil
@@ -45,11 +48,11 @@ func writeGroupedHuman(writer io.Writer, result *orchestrator.Result) error {
 		fmt.Fprintf(writer, "# %s\n", response.ProviderID)
 		groups := groupHits(response.Hits)
 		for _, group := range groups {
-			fmt.Fprintf(writer, "## %s", group.title)
-			if primary := firstURI(group.uris); primary != nil {
-				fmt.Fprintf(writer, " <%s>", primary.GetUri())
+			title := singleLine(group.title)
+			if target := firstTarget(group.targets); target != nil {
+				title = terminalLink(title, recallOpenURL(response.ProviderID, "", target))
 			}
-			fmt.Fprintln(writer)
+			fmt.Fprintf(writer, "## %s\n", title)
 			for _, hit := range group.hits {
 				writeHumanHit(writer, hit, "  ")
 			}
@@ -64,10 +67,12 @@ func writeHumanHit(writer io.Writer, normalized normalize.Hit, indent string) {
 	if hit == nil {
 		return
 	}
-	fmt.Fprintf(writer, "%s[%s] %s", indent, normalized.ProviderID, singleLine(hit.GetTitle()))
-	if primary := firstURI(hit.GetUris()); primary != nil {
-		fmt.Fprintf(writer, " <%s>", primary.GetUri())
+	if isCodeMatch(hit) {
+		writeCompactCodeHit(writer, normalized, indent)
+		return
 	}
+	title := linkedTitle(normalized.ProviderID, hit)
+	fmt.Fprintf(writer, "%s[%s] %s", indent, normalized.ProviderID, title)
 	if kind := strings.TrimSpace(hit.GetKind()); kind != "" {
 		fmt.Fprintf(writer, " (%s)", kind)
 	}
@@ -78,9 +83,32 @@ func writeHumanHit(writer io.Writer, normalized normalize.Hit, indent string) {
 	if snippet := strings.TrimSpace(hit.GetSnippet()); snippet != "" {
 		fmt.Fprintf(writer, "%s  %s\n", indent, singleLine(snippet))
 	}
-	if actions := secondaryActions(hit.GetUris()); actions != "" {
+	if actions := secondaryActions(normalized.ProviderID, hit.GetKind(), hit.GetTargets()); actions != "" {
 		fmt.Fprintf(writer, "%s  actions: %s\n", indent, actions)
 	}
+}
+
+func writeCompactCodeHit(writer io.Writer, normalized normalize.Hit, indent string) {
+	hit := normalized.Hit
+	fmt.Fprintf(writer, "%s[%s] %s", indent, normalized.ProviderID, linkedTitle(normalized.ProviderID, hit))
+	if occurredAt := hit.GetOccurredAt(); occurredAt != nil && occurredAt.IsValid() {
+		fmt.Fprintf(writer, " %s", occurredAt.AsTime().UTC().Format(time.RFC3339))
+	}
+	fmt.Fprintln(writer)
+	if snippet := strings.TrimSpace(hit.GetSnippet()); snippet != "" {
+		fmt.Fprintf(writer, "%s  %s\n", indent, singleLine(snippet))
+	}
+	if actions := secondaryActions(normalized.ProviderID, hit.GetKind(), hit.GetTargets()); actions != "" {
+		fmt.Fprintf(writer, "%s  actions: %s\n", indent, actions)
+	}
+}
+
+func linkedTitle(providerID string, hit *searchv1.SearchHit) string {
+	title := singleLine(hit.GetTitle())
+	if target := firstTarget(hit.GetTargets()); target != nil {
+		return terminalLink(title, recallOpenURL(providerID, hit.GetKind(), target))
+	}
+	return title
 }
 
 func writeHumanWarnings(writer io.Writer, warnings []normalize.Warning) {
@@ -183,11 +211,13 @@ func synthesizeRawResponse(response orchestrator.ProviderResponse) *searchv1.Sea
 	return raw
 }
 
+const codeMatchKind = "code_match"
+
 type groupedHits struct {
-	key   string
-	title string
-	uris  []*searchv1.NamedUri
-	hits  []normalize.Hit
+	key     string
+	title   string
+	targets []*searchv1.OpenTarget
+	hits    []normalize.Hit
 }
 
 func ungroupedHits(result *orchestrator.Result) []normalize.Hit {
@@ -213,44 +243,101 @@ func groupHits(hits []normalize.Hit) []groupedHits {
 		group := hit.Hit.GetGroup()
 		key := "__ungrouped__"
 		title := "Ungrouped"
-		var uris []*searchv1.NamedUri
+		var targets []*searchv1.OpenTarget
 		if group != nil && strings.TrimSpace(group.GetKey()) != "" {
 			key = group.GetKey()
 			title = group.GetTitle()
-			uris = group.GetUris()
+			targets = group.GetTargets()
 		}
 		index, exists := indexes[key]
 		if !exists {
 			index = len(groups)
 			indexes[key] = index
-			groups = append(groups, groupedHits{key: key, title: title, uris: uris})
+			groups = append(groups, groupedHits{key: key, title: title, targets: targets})
 		}
 		groups[index].hits = append(groups[index].hits, hit)
 	}
 	return groups
 }
 
-func firstURI(uris []*searchv1.NamedUri) *searchv1.NamedUri {
-	for _, uri := range uris {
-		if uri != nil && strings.TrimSpace(uri.GetUri()) != "" {
-			return uri
+func isCodeMatch(hit *searchv1.SearchHit) bool {
+	return strings.TrimSpace(hit.GetKind()) == codeMatchKind
+}
+
+func firstTarget(targets []*searchv1.OpenTarget) *searchv1.OpenTarget {
+	for _, target := range targets {
+		if target == nil || target.GetTarget() == nil {
+			continue
 		}
+		return target
 	}
 	return nil
 }
 
-func secondaryActions(uris []*searchv1.NamedUri) string {
-	if len(uris) <= 1 {
+func secondaryActions(providerID string, kind string, targets []*searchv1.OpenTarget) string {
+	if len(targets) <= 1 {
 		return ""
 	}
-	actions := make([]string, 0, len(uris)-1)
-	for _, uri := range uris[1:] {
-		if uri == nil || strings.TrimSpace(uri.GetName()) == "" || strings.TrimSpace(uri.GetUri()) == "" {
+	actions := make([]string, 0, len(targets)-1)
+	for _, target := range targets[1:] {
+		if target == nil || target.GetTarget() == nil {
 			continue
 		}
-		actions = append(actions, fmt.Sprintf("%s=%s", uri.GetName(), uri.GetUri()))
+		label := targetLabel(target)
+		actions = append(actions, terminalLink(label, recallOpenURL(providerID, kind, target)))
 	}
 	return strings.Join(actions, " ")
+}
+
+func targetLabel(target *searchv1.OpenTarget) string {
+	if target.GetFile() != nil {
+		return "file"
+	}
+	if uriTarget := target.GetUri(); uriTarget != nil {
+		parsed, err := url.Parse(uriTarget.GetUri())
+		if err == nil && parsed.Scheme != "" {
+			return parsed.Scheme
+		}
+		return "uri"
+	}
+	return "target"
+}
+
+func recallOpenURL(providerID string, kind string, target *searchv1.OpenTarget) string {
+	values := url.Values{}
+	values.Set("v", "1")
+	if providerID = strings.TrimSpace(providerID); providerID != "" {
+		values.Set("source", providerID)
+	}
+	if kind = strings.TrimSpace(kind); kind != "" {
+		values.Set("kind", kind)
+	}
+	if fileTarget := target.GetFile(); fileTarget != nil {
+		values.Set("type", "file")
+		values.Set("path", fileTarget.GetPath())
+		if fileTarget.Line != nil {
+			values.Set("line", strconv.FormatUint(uint64(fileTarget.GetLine()), 10))
+		}
+		if fileTarget.Column != nil {
+			values.Set("column", strconv.FormatUint(uint64(fileTarget.GetColumn()), 10))
+		}
+	} else if uriTarget := target.GetUri(); uriTarget != nil {
+		values.Set("type", "uri")
+		values.Set("uri", uriTarget.GetUri())
+		if parsed, err := url.Parse(uriTarget.GetUri()); err == nil && parsed.Scheme != "" {
+			values.Set("scheme", parsed.Scheme)
+		}
+	} else {
+		return ""
+	}
+	return (&url.URL{Scheme: "recall", Host: "open", RawQuery: values.Encode()}).String()
+}
+
+func terminalLink(label string, targetURL string) string {
+	if targetURL == "" {
+		return label
+	}
+	return "\x1b]8;;" + targetURL + "\x1b\\" + label + "\x1b]8;;\x1b\\"
 }
 
 func singleLine(value string) string {

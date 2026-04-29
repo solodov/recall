@@ -58,14 +58,23 @@ providers {
   }
 }
 providers {
-  id: "remote-mail"
+  id: "remote-source"
   enabled: true
   weight: 1.0
   timeout_ms: 2500
   default_limit: 30
   grpc {
-    endpoint: "dns:///mail-search.internal:443"
+    endpoint: "dns:///source-search.internal:443"
   }
+}
+openers {
+  id: "code-editor"
+  sources: "example"
+  kinds: "code_match"
+  target_types: "file"
+  command: "editor"
+  args: "+{line}"
+  args: "{path}"
 }
 `
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
@@ -84,8 +93,11 @@ providers {
 	if providers[0].GetId() != "example" || providers[0].GetStdio().GetCommand() != "recall-example-provider" {
 		t.Fatalf("first provider did not round trip as stdio example: %#v", providers[0])
 	}
-	if providers[1].GetId() != "remote-mail" || providers[1].GetGrpc().GetEndpoint() != "dns:///mail-search.internal:443" {
-		t.Fatalf("second provider did not round trip as grpc remote-mail: %#v", providers[1])
+	if providers[1].GetId() != "remote-source" || providers[1].GetGrpc().GetEndpoint() != "dns:///source-search.internal:443" {
+		t.Fatalf("second provider did not round trip as grpc remote-source: %#v", providers[1])
+	}
+	if len(cfg.GetOpeners()) != 1 || cfg.GetOpeners()[0].GetId() != "code-editor" || cfg.GetOpeners()[0].GetCommand() != "editor" {
+		t.Fatalf("opener did not round trip: %#v", cfg.GetOpeners())
 	}
 }
 
@@ -112,6 +124,22 @@ providers {
 	}
 	if !strings.Contains(err.Error(), "unknown field") {
 		t.Fatalf("LoadFile error = %q, want unknown field", err)
+	}
+}
+
+func TestValidateRejectsInvalidOpener(t *testing.T) {
+	err := Validate(&configv1.RecallConfig{Openers: []*configv1.Opener{{
+		Id:          "bad opener",
+		TargetTypes: []string{"unknown"},
+	}}})
+	if err == nil {
+		t.Fatal("Validate succeeded with invalid opener")
+	}
+	message := err.Error()
+	for _, want := range []string{"openers[0].id", "openers[0].command", "openers[0].target_types[0]"} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("Validate error %q does not contain %q", message, want)
+		}
 	}
 }
 

@@ -37,7 +37,7 @@ func TestMethodPathRoundTrip(t *testing.T) {
 }
 
 func TestServeOneDecodesTextprotoAndMirrorsTextproto(t *testing.T) {
-	requestBytes, err := prototext.Marshal(&searchv1.SearchRequest{Query: "deploy", Limit: proto.Uint32(3)})
+	requestBytes, err := prototext.Marshal(&searchv1.SearchRequest{Query: "sample", Limit: proto.Uint32(3)})
 	if err != nil {
 		t.Fatalf("marshal textproto request: %v", err)
 	}
@@ -47,13 +47,13 @@ func TestServeOneDecodesTextprotoAndMirrorsTextproto(t *testing.T) {
 	if err := prototext.Unmarshal(stdout, response); err != nil {
 		t.Fatalf("unmarshal textproto response: %v", err)
 	}
-	if response.GetHits()[0].GetId() != "example:deploy" {
-		t.Fatalf("response = %#v, want deploy hit", response)
+	if response.GetHits()[0].GetId() != "example:sample" {
+		t.Fatalf("response = %#v, want sample hit", response)
 	}
 }
 
 func TestServeOneDecodesBinaryAndMirrorsBinary(t *testing.T) {
-	requestBytes, err := proto.Marshal(&searchv1.SearchRequest{Query: "alice", Limit: proto.Uint32(2)})
+	requestBytes, err := proto.Marshal(&searchv1.SearchRequest{Query: "fixture", Limit: proto.Uint32(2)})
 	if err != nil {
 		t.Fatalf("marshal binary request: %v", err)
 	}
@@ -63,8 +63,8 @@ func TestServeOneDecodesBinaryAndMirrorsBinary(t *testing.T) {
 	if err := proto.Unmarshal(stdout, response); err != nil {
 		t.Fatalf("unmarshal binary response: %v", err)
 	}
-	if response.GetHits()[0].GetId() != "example:alice" {
-		t.Fatalf("response = %#v, want alice hit", response)
+	if response.GetHits()[0].GetId() != "example:fixture" {
+		t.Fatalf("response = %#v, want fixture hit", response)
 	}
 }
 
@@ -73,18 +73,18 @@ func TestCallUnaryAppendsRPCPathAndUsesBinaryPayload(t *testing.T) {
 	transport := helperTransport(logPath)
 	response := &searchv1.SearchResponse{}
 
-	err := CallUnary(context.Background(), transport, time.Second, searchMethod, &searchv1.SearchRequest{Query: "deploy", Limit: proto.Uint32(1)}, response)
+	err := CallUnary(context.Background(), transport, time.Second, searchMethod, &searchv1.SearchRequest{Query: "sample", Limit: proto.Uint32(1)}, response)
 	if err != nil {
 		t.Fatalf("CallUnary returned error: %v", err)
 	}
-	if response.GetHits()[0].GetId() != "example:deploy" {
-		t.Fatalf("response = %#v, want deploy hit", response)
+	if response.GetHits()[0].GetId() != "example:sample" {
+		t.Fatalf("response = %#v, want sample hit", response)
 	}
 
 	log := readHelperLog(t, logPath)
 	for _, want := range []string{
 		"path=/recall.search.v1.SearchProvider/Search",
-		"query=deploy",
+		"query=sample",
 		"format=protobuf_binary",
 	} {
 		if !strings.Contains(log, want) {

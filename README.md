@@ -1,6 +1,6 @@
 # recall
 
-`recall` is a federated personal-search CLI. It loads an operator-owned provider registry, asks each enabled provider to search the same query, normalizes results, blends provider-local ranks, and renders a single response.
+`recall` is a federated personal-search CLI. It loads an operator-owned provider registry, asks each enabled provider to search the same query, normalizes results, blends provider-local ranks, and renders a single response with clickable terminal open targets when available.
 
 Providers implement the versioned protobuf service in `proto/recall/search/v1/search.proto`:
 
@@ -77,17 +77,22 @@ func main() {
 
 The SDK handles the stdio RPC path, stdin format auto-detection, mirrored stdout encoding, and dispatch to `Search`.
 
+## First-party providers
+
+- `recall-example-provider` demonstrates the provider contract with a deterministic fixture.
+- `recall-ripgrep-provider` searches code with ripgrep; see `docs/recall-ripgrep-provider.md`.
+
 ## Run the example
 
 The example script builds `recall` and the example provider, writes a temporary config that points at the built provider, and runs a search:
 
 ```bash
 examples/run-example.sh
-examples/run-example.sh deploy
-examples/run-example.sh --format json deploy
+examples/run-example.sh rollout
+examples/run-example.sh --format json rollout
 ```
 
-The script defaults to the query `deploy` when no query is supplied.
+The script defaults to the query `rollout` when no query is supplied.
 
 ## Pipe textproto directly to a provider
 
@@ -97,17 +102,19 @@ Build the binaries first:
 just build
 ```
 
+This produces `dist/recall`, `dist/recall-open`, `dist/recall-example-provider`, and `dist/recall-ripgrep-provider`.
+
 Then call the example provider directly with a textproto `SearchRequest`:
 
 ```bash
-printf 'query: "deploy"\n' |
+printf 'query: "rollout"\n' |
   dist/recall-example-provider /recall.search.v1.SearchProvider/Search
 ```
 
 Omitting `limit` asks the provider to return every reasonable match. Add `limit` when you want a cap:
 
 ```bash
-printf 'query: "deploy"\nlimit: 10\n' |
+printf 'query: "rollout"\nlimit: 10\n' |
   dist/recall-example-provider /recall.search.v1.SearchProvider/Search
 ```
 
@@ -133,6 +140,8 @@ providers {
 ```
 
 Service and method are protocol-owned, so they are not config fields. For stdio providers, `recall` appends `/recall.search.v1.SearchProvider/Search` at call time.
+
+`openers` are optional local commands used by `recall-open` for OSC 8 `recall://` terminal links.
 
 ## Development
 

@@ -13,13 +13,13 @@ import (
 
 func TestSearchSelectsEnabledProvidersAndBuildsRequests(t *testing.T) {
 	cfg := &configv1.RecallConfig{Providers: []*configv1.Provider{
-		provider("org", true, 10),
+		provider("source-a", true, 10),
 		provider("disabled", false, 20),
-		provider("mail", true, 30),
+		provider("source-b", true, 30),
 	}}
 	factory := &recordingFactory{}
 
-	result, err := Search(testRuntime(), cfg, "alice meeting", Options{ClientFactory: factory.New})
+	result, err := Search(testRuntime(), cfg, "sample query", Options{ClientFactory: factory.New})
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
@@ -27,29 +27,29 @@ func TestSearchSelectsEnabledProvidersAndBuildsRequests(t *testing.T) {
 	if len(result.Responses) != 2 {
 		t.Fatalf("response count = %d, want 2", len(result.Responses))
 	}
-	if result.Responses[0].ProviderID != "org" || result.Responses[1].ProviderID != "mail" {
+	if result.Responses[0].ProviderID != "source-a" || result.Responses[1].ProviderID != "source-b" {
 		t.Fatalf("responses were not returned in config order: %#v", result.Responses)
 	}
 	if len(factory.requests) != 2 {
 		t.Fatalf("request count = %d, want 2", len(factory.requests))
 	}
-	if factory.requests["org"].GetQuery() != "alice meeting" || factory.requests["org"].GetLimit() != 10 {
-		t.Fatalf("org request = %#v", factory.requests["org"])
+	if factory.requests["source-a"].GetQuery() != "sample query" || factory.requests["source-a"].GetLimit() != 10 {
+		t.Fatalf("source-a request = %#v", factory.requests["source-a"])
 	}
-	if factory.requests["mail"].GetQuery() != "alice meeting" || factory.requests["mail"].GetLimit() != 30 {
-		t.Fatalf("mail request = %#v", factory.requests["mail"])
+	if factory.requests["source-b"].GetQuery() != "sample query" || factory.requests["source-b"].GetLimit() != 30 {
+		t.Fatalf("source-b request = %#v", factory.requests["source-b"])
 	}
 }
 
 func TestSearchRoutesRequestedSourcesAndLimitOverride(t *testing.T) {
 	cfg := &configv1.RecallConfig{Providers: []*configv1.Provider{
-		provider("org", true, 10),
-		provider("mail", true, 30),
+		provider("source-a", true, 10),
+		provider("source-b", true, 30),
 	}}
 	factory := &recordingFactory{}
 
-	result, err := Search(testRuntime(), cfg, "deploy", Options{
-		Sources:       []string{"mail"},
+	result, err := Search(testRuntime(), cfg, "sample", Options{
+		Sources:       []string{"source-b"},
 		Limit:         5,
 		ClientFactory: factory.New,
 	})
@@ -57,14 +57,14 @@ func TestSearchRoutesRequestedSourcesAndLimitOverride(t *testing.T) {
 		t.Fatalf("Search returned error: %v", err)
 	}
 
-	if len(result.Responses) != 1 || result.Responses[0].ProviderID != "mail" {
-		t.Fatalf("responses = %#v, want only mail", result.Responses)
+	if len(result.Responses) != 1 || result.Responses[0].ProviderID != "source-b" {
+		t.Fatalf("responses = %#v, want only source-b", result.Responses)
 	}
-	if _, exists := factory.requests["org"]; exists {
-		t.Fatal("org was called despite source filter")
+	if _, exists := factory.requests["source-a"]; exists {
+		t.Fatal("source-a was called despite source filter")
 	}
-	if factory.requests["mail"].GetLimit() != 5 {
-		t.Fatalf("mail limit = %d, want override 5", factory.requests["mail"].GetLimit())
+	if factory.requests["source-b"].GetLimit() != 5 {
+		t.Fatalf("source-b limit = %d, want override 5", factory.requests["source-b"].GetLimit())
 	}
 }
 
@@ -77,13 +77,13 @@ func TestSearchAppliesKindAsPostFilterWithoutChangingProviderRequest(t *testing.
 		},
 	}}
 
-	result, err := Search(testRuntime(), cfg, "alice meeting", Options{Kinds: []string{"event"}, ClientFactory: factory.New})
+	result, err := Search(testRuntime(), cfg, "sample query", Options{Kinds: []string{"event"}, ClientFactory: factory.New})
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
 
 	request := factory.requests["example"]
-	if request.GetQuery() != "alice meeting" || request.GetLimit() != 10 {
+	if request.GetQuery() != "sample query" || request.GetLimit() != 10 {
 		t.Fatalf("provider request = %#v, want only original query and limit", request)
 	}
 	if len(result.Responses) != 1 || len(result.Responses[0].Hits) != 1 {
@@ -131,7 +131,7 @@ func TestSearchFailsWhenAllSelectedProvidersFail(t *testing.T) {
 }
 
 func TestSearchRejectsUnknownSource(t *testing.T) {
-	cfg := &configv1.RecallConfig{Providers: []*configv1.Provider{provider("org", true, 10)}}
+	cfg := &configv1.RecallConfig{Providers: []*configv1.Provider{provider("source-a", true, 10)}}
 
 	_, err := Search(testRuntime(), cfg, "query", Options{Sources: []string{"missing"}, ClientFactory: (&recordingFactory{}).New})
 	if err == nil {

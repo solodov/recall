@@ -12,16 +12,16 @@ import (
 )
 
 func TestServeSearchWithOptionsDecodesTextprotoAndMirrorsResponse(t *testing.T) {
-	request := []byte("query: \"deploy\"\n")
+	request := []byte("query: \"sample\"\n")
 	var stdout bytes.Buffer
 	var sawUnlimited bool
 
 	err := ServeSearchWithOptions(context.Background(), SearchFunc(func(_ context.Context, request *searchv1.SearchRequest) (*searchv1.SearchResponse, error) {
-		if request.GetQuery() != "deploy" {
-			t.Fatalf("query = %q, want deploy", request.GetQuery())
+		if request.GetQuery() != "sample" {
+			t.Fatalf("query = %q, want sample", request.GetQuery())
 		}
 		_, sawUnlimited = RequestedLimit(request)
-		return &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{{Id: "hit:1", Kind: "note", Title: "Deploy"}}}, nil
+		return &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{{Id: "hit:1", Kind: "note", Title: "Sample"}}}, nil
 	}), ServeOptions{
 		Stdin:  bytes.NewReader(request),
 		Stdout: &stdout,
@@ -46,9 +46,9 @@ func TestServeSearchWithOptionsDecodesTextprotoAndMirrorsResponse(t *testing.T) 
 func TestRequestedLimitRequiresPositivePresentLimit(t *testing.T) {
 	for name, request := range map[string]*searchv1.SearchRequest{
 		"nil":      nil,
-		"missing":  {Query: "deploy"},
-		"zero":     {Query: "deploy", Limit: proto.Uint32(0)},
-		"positive": {Query: "deploy", Limit: proto.Uint32(2)},
+		"missing":  {Query: "sample"},
+		"zero":     {Query: "sample", Limit: proto.Uint32(0)},
+		"positive": {Query: "sample", Limit: proto.Uint32(2)},
 	} {
 		limit, ok := RequestedLimit(request)
 		if name == "positive" {

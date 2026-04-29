@@ -9,6 +9,9 @@ message RecallConfig {
   // Providers available to recall. Disabled providers remain configured but are
   // skipped during query fan-out.
   repeated Provider providers = 1;
+
+  // Operator-owned commands used by recall-open for clickable result targets.
+  repeated Opener openers = 2;
 }
 
 // Provider declares one searchable source and how recall can reach it. The
@@ -38,6 +41,32 @@ message Provider {
   uint32 default_limit = 22;
 }
 
+// Opener maps clicked recall:// targets to local commands. Empty filter lists
+// match every target for that dimension.
+message Opener {
+  // Operator-facing opener identifier used in diagnostics.
+  string id = 1;
+
+  // Provider IDs this opener applies to.
+  repeated string sources = 2;
+
+  // Hit kinds this opener applies to.
+  repeated string kinds = 3;
+
+  // Target types this opener applies to, currently "file" or "uri".
+  repeated string target_types = 4;
+
+  // URI schemes this opener applies to for uri targets, such as https.
+  repeated string uri_schemes = 5;
+
+  // Command to execute without a shell.
+  string command = 10;
+
+  // Static command arguments with placeholders such as {path}, {uri}, {line},
+  // and {column} expanded by recall-open.
+  repeated string args = 11;
+}
+
 // StdioTransport starts a provider process for one unary RPC call over stdin
 // and stdout.
 message StdioTransport {
@@ -54,6 +83,6 @@ message StdioTransport {
 // GrpcTransport connects to a provider that exposes the recall search service
 // over gRPC.
 message GrpcTransport {
-  // gRPC endpoint, for example dns:///mail-search.internal:443.
+  // gRPC endpoint, for example dns:///source-search.internal:443.
   string endpoint = 1;
 }

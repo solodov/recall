@@ -1,0 +1,14 @@
+# Example recall registry entry for code search backed by ripgrep.
+# Copy into your recall config and update --root for your local checkout.
+providers {
+  id: "code"
+  enabled: true
+  weight: 1.0
+  timeout_ms: 5000
+  default_limit: 50
+  stdio {
+    command: "recall-ripgrep-provider"
+    args: "--root"
+    args: "/path/to/repo"
+  }
+}

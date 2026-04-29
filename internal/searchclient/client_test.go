@@ -24,7 +24,7 @@ func TestStdioClientSearchUsesTypedSearchPath(t *testing.T) {
 		t.Fatalf("NewStdioClient returned error: %v", err)
 	}
 
-	response, err := client.Search(context.Background(), &searchv1.SearchRequest{Query: "deploy notes", Limit: proto.Uint32(3)})
+	response, err := client.Search(context.Background(), &searchv1.SearchRequest{Query: "sample note", Limit: proto.Uint32(3)})
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
@@ -33,7 +33,7 @@ func TestStdioClientSearchUsesTypedSearchPath(t *testing.T) {
 	if len(hits) != 1 {
 		t.Fatalf("hit count = %d, want 1", len(hits))
 	}
-	if hits[0].GetId() != "example:deploy notes" || hits[0].GetTitle() != "Result for deploy notes" {
+	if hits[0].GetId() != "example:sample note" || hits[0].GetTitle() != "Result for sample note" {
 		t.Fatalf("unexpected hit: %#v", hits[0])
 	}
 
@@ -81,14 +81,14 @@ func TestGRPCClientInvokesSearchFullMethodWithDeadline(t *testing.T) {
 	invoker := &recordingInvoker{}
 	client := newGRPCClientWithInvoker("dns:///provider", 50*time.Millisecond, invoker)
 
-	response, err := client.Search(context.Background(), &searchv1.SearchRequest{Query: "alice", Limit: proto.Uint32(2)})
+	response, err := client.Search(context.Background(), &searchv1.SearchRequest{Query: "fixture", Limit: proto.Uint32(2)})
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
 	if invoker.method != SearchFullMethod {
 		t.Fatalf("method = %q, want %q", invoker.method, SearchFullMethod)
 	}
-	if invoker.request.GetQuery() != "alice" || invoker.request.GetLimit() != 2 {
+	if invoker.request.GetQuery() != "fixture" || invoker.request.GetLimit() != 2 {
 		t.Fatalf("request = %#v", invoker.request)
 	}
 	if !invoker.sawDeadline {

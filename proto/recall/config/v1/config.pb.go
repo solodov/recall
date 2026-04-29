@@ -27,7 +27,9 @@ type RecallConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Providers available to recall. Disabled providers remain configured but are
 	// skipped during query fan-out.
-	Providers     []*Provider `protobuf:"bytes,1,rep,name=providers,proto3" json:"providers,omitempty"`
+	Providers []*Provider `protobuf:"bytes,1,rep,name=providers,proto3" json:"providers,omitempty"`
+	// Operator-owned commands used by recall-open for clickable result targets.
+	Openers       []*Opener `protobuf:"bytes,2,rep,name=openers,proto3" json:"openers,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -65,6 +67,13 @@ func (*RecallConfig) Descriptor() ([]byte, []int) {
 func (x *RecallConfig) GetProviders() []*Provider {
 	if x != nil {
 		return x.Providers
+	}
+	return nil
+}
+
+func (x *RecallConfig) GetOpeners() []*Opener {
+	if x != nil {
+		return x.Openers
 	}
 	return nil
 }
@@ -202,6 +211,108 @@ func (*Provider_Stdio) isProvider_Transport() {}
 
 func (*Provider_Grpc) isProvider_Transport() {}
 
+// Opener maps clicked recall:// targets to local commands. Empty filter lists
+// match every target for that dimension.
+type Opener struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Operator-facing opener identifier used in diagnostics.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// Provider IDs this opener applies to.
+	Sources []string `protobuf:"bytes,2,rep,name=sources,proto3" json:"sources,omitempty"`
+	// Hit kinds this opener applies to.
+	Kinds []string `protobuf:"bytes,3,rep,name=kinds,proto3" json:"kinds,omitempty"`
+	// Target types this opener applies to, currently "file" or "uri".
+	TargetTypes []string `protobuf:"bytes,4,rep,name=target_types,json=targetTypes,proto3" json:"target_types,omitempty"`
+	// URI schemes this opener applies to for uri targets, such as https.
+	UriSchemes []string `protobuf:"bytes,5,rep,name=uri_schemes,json=uriSchemes,proto3" json:"uri_schemes,omitempty"`
+	// Command to execute without a shell.
+	Command string `protobuf:"bytes,10,opt,name=command,proto3" json:"command,omitempty"`
+	// Static command arguments with placeholders such as {path}, {uri}, {line},
+	// and {column} expanded by recall-open.
+	Args          []string `protobuf:"bytes,11,rep,name=args,proto3" json:"args,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Opener) Reset() {
+	*x = Opener{}
+	mi := &file_proto_recall_config_v1_config_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Opener) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Opener) ProtoMessage() {}
+
+func (x *Opener) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_recall_config_v1_config_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Opener.ProtoReflect.Descriptor instead.
+func (*Opener) Descriptor() ([]byte, []int) {
+	return file_proto_recall_config_v1_config_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *Opener) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *Opener) GetSources() []string {
+	if x != nil {
+		return x.Sources
+	}
+	return nil
+}
+
+func (x *Opener) GetKinds() []string {
+	if x != nil {
+		return x.Kinds
+	}
+	return nil
+}
+
+func (x *Opener) GetTargetTypes() []string {
+	if x != nil {
+		return x.TargetTypes
+	}
+	return nil
+}
+
+func (x *Opener) GetUriSchemes() []string {
+	if x != nil {
+		return x.UriSchemes
+	}
+	return nil
+}
+
+func (x *Opener) GetCommand() string {
+	if x != nil {
+		return x.Command
+	}
+	return ""
+}
+
+func (x *Opener) GetArgs() []string {
+	if x != nil {
+		return x.Args
+	}
+	return nil
+}
+
 // StdioTransport starts a provider process for one unary RPC call over stdin
 // and stdout.
 type StdioTransport struct {
@@ -218,7 +329,7 @@ type StdioTransport struct {
 
 func (x *StdioTransport) Reset() {
 	*x = StdioTransport{}
-	mi := &file_proto_recall_config_v1_config_proto_msgTypes[2]
+	mi := &file_proto_recall_config_v1_config_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -230,7 +341,7 @@ func (x *StdioTransport) String() string {
 func (*StdioTransport) ProtoMessage() {}
 
 func (x *StdioTransport) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_recall_config_v1_config_proto_msgTypes[2]
+	mi := &file_proto_recall_config_v1_config_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -243,7 +354,7 @@ func (x *StdioTransport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StdioTransport.ProtoReflect.Descriptor instead.
 func (*StdioTransport) Descriptor() ([]byte, []int) {
-	return file_proto_recall_config_v1_config_proto_rawDescGZIP(), []int{2}
+	return file_proto_recall_config_v1_config_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *StdioTransport) GetCommand() string {
@@ -271,7 +382,7 @@ func (x *StdioTransport) GetEnv() map[string]string {
 // over gRPC.
 type GrpcTransport struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// gRPC endpoint, for example dns:///mail-search.internal:443.
+	// gRPC endpoint, for example dns:///source-search.internal:443.
 	Endpoint      string `protobuf:"bytes,1,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -279,7 +390,7 @@ type GrpcTransport struct {
 
 func (x *GrpcTransport) Reset() {
 	*x = GrpcTransport{}
-	mi := &file_proto_recall_config_v1_config_proto_msgTypes[3]
+	mi := &file_proto_recall_config_v1_config_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -291,7 +402,7 @@ func (x *GrpcTransport) String() string {
 func (*GrpcTransport) ProtoMessage() {}
 
 func (x *GrpcTransport) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_recall_config_v1_config_proto_msgTypes[3]
+	mi := &file_proto_recall_config_v1_config_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -304,7 +415,7 @@ func (x *GrpcTransport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GrpcTransport.ProtoReflect.Descriptor instead.
 func (*GrpcTransport) Descriptor() ([]byte, []int) {
-	return file_proto_recall_config_v1_config_proto_rawDescGZIP(), []int{3}
+	return file_proto_recall_config_v1_config_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *GrpcTransport) GetEndpoint() string {
@@ -318,9 +429,10 @@ var File_proto_recall_config_v1_config_proto protoreflect.FileDescriptor
 
 const file_proto_recall_config_v1_config_proto_rawDesc = "" +
 	"\n" +
-	"#proto/recall/config/v1/config.proto\x12\x10recall.config.v1\"H\n" +
+	"#proto/recall/config/v1/config.proto\x12\x10recall.config.v1\"|\n" +
 	"\fRecallConfig\x128\n" +
-	"\tproviders\x18\x01 \x03(\v2\x1a.recall.config.v1.ProviderR\tproviders\"\x8e\x02\n" +
+	"\tproviders\x18\x01 \x03(\v2\x1a.recall.config.v1.ProviderR\tproviders\x122\n" +
+	"\aopeners\x18\x02 \x03(\v2\x18.recall.config.v1.OpenerR\aopeners\"\x8e\x02\n" +
 	"\bProvider\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aenabled\x18\x02 \x01(\bR\aenabled\x128\n" +
@@ -331,7 +443,17 @@ const file_proto_recall_config_v1_config_proto_rawDesc = "" +
 	"\n" +
 	"timeout_ms\x18\x15 \x01(\rR\ttimeoutMs\x12#\n" +
 	"\rdefault_limit\x18\x16 \x01(\rR\fdefaultLimitB\v\n" +
-	"\ttransport\"\xb3\x01\n" +
+	"\ttransport\"\xba\x01\n" +
+	"\x06Opener\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
+	"\asources\x18\x02 \x03(\tR\asources\x12\x14\n" +
+	"\x05kinds\x18\x03 \x03(\tR\x05kinds\x12!\n" +
+	"\ftarget_types\x18\x04 \x03(\tR\vtargetTypes\x12\x1f\n" +
+	"\vuri_schemes\x18\x05 \x03(\tR\n" +
+	"uriSchemes\x12\x18\n" +
+	"\acommand\x18\n" +
+	" \x01(\tR\acommand\x12\x12\n" +
+	"\x04args\x18\v \x03(\tR\x04args\"\xb3\x01\n" +
 	"\x0eStdioTransport\x12\x18\n" +
 	"\acommand\x18\x01 \x01(\tR\acommand\x12\x12\n" +
 	"\x04args\x18\x02 \x03(\tR\x04args\x12;\n" +
@@ -354,24 +476,26 @@ func file_proto_recall_config_v1_config_proto_rawDescGZIP() []byte {
 	return file_proto_recall_config_v1_config_proto_rawDescData
 }
 
-var file_proto_recall_config_v1_config_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
+var file_proto_recall_config_v1_config_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_proto_recall_config_v1_config_proto_goTypes = []any{
 	(*RecallConfig)(nil),   // 0: recall.config.v1.RecallConfig
 	(*Provider)(nil),       // 1: recall.config.v1.Provider
-	(*StdioTransport)(nil), // 2: recall.config.v1.StdioTransport
-	(*GrpcTransport)(nil),  // 3: recall.config.v1.GrpcTransport
-	nil,                    // 4: recall.config.v1.StdioTransport.EnvEntry
+	(*Opener)(nil),         // 2: recall.config.v1.Opener
+	(*StdioTransport)(nil), // 3: recall.config.v1.StdioTransport
+	(*GrpcTransport)(nil),  // 4: recall.config.v1.GrpcTransport
+	nil,                    // 5: recall.config.v1.StdioTransport.EnvEntry
 }
 var file_proto_recall_config_v1_config_proto_depIdxs = []int32{
 	1, // 0: recall.config.v1.RecallConfig.providers:type_name -> recall.config.v1.Provider
-	2, // 1: recall.config.v1.Provider.stdio:type_name -> recall.config.v1.StdioTransport
-	3, // 2: recall.config.v1.Provider.grpc:type_name -> recall.config.v1.GrpcTransport
-	4, // 3: recall.config.v1.StdioTransport.env:type_name -> recall.config.v1.StdioTransport.EnvEntry
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	2, // 1: recall.config.v1.RecallConfig.openers:type_name -> recall.config.v1.Opener
+	3, // 2: recall.config.v1.Provider.stdio:type_name -> recall.config.v1.StdioTransport
+	4, // 3: recall.config.v1.Provider.grpc:type_name -> recall.config.v1.GrpcTransport
+	5, // 4: recall.config.v1.StdioTransport.env:type_name -> recall.config.v1.StdioTransport.EnvEntry
+	5, // [5:5] is the sub-list for method output_type
+	5, // [5:5] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_proto_recall_config_v1_config_proto_init() }
@@ -389,7 +513,7 @@ func file_proto_recall_config_v1_config_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_recall_config_v1_config_proto_rawDesc), len(file_proto_recall_config_v1_config_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   5,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

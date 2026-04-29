@@ -51,8 +51,8 @@ message SearchHit {
   // across providers and are not the primary blending signal.
   optional double score = 5;
 
-  // Named actions or locations. The first URI is the primary action.
-  repeated NamedUri uris = 6;
+  // Openable targets for this result, in provider-preferred order.
+  repeated OpenTarget targets = 6;
 
   // Optional provider-preferred grouping identity.
   SearchGroup group = 7;
@@ -62,13 +62,30 @@ message SearchHit {
   google.protobuf.Timestamp occurred_at = 8;
 }
 
-// NamedUri is the only action abstraction in the search contract.
-message NamedUri {
-  // Stable action label, such as open, file, thread, event, web, or source.
-  string name = 1;
+// OpenTarget describes one action or location a result can open.
+message OpenTarget {
+  oneof target {
+    UriTarget uri = 1;
+    FileTarget file = 2;
+  }
+}
 
-  // URI to open or expose for the named action.
-  string uri = 2;
+// UriTarget is a generic URI-backed open target.
+message UriTarget {
+  // URI to open.
+  string uri = 1;
+}
+
+// FileTarget is a local file target with an optional 1-based position.
+message FileTarget {
+  // Absolute local filesystem path.
+  string path = 1;
+
+  // Optional 1-based line within the file.
+  optional uint32 line = 2;
+
+  // Optional 1-based column within line. Requires line when present.
+  optional uint32 column = 3;
 }
 
 // SearchGroup describes source-native grouping without provider-specific
@@ -80,8 +97,8 @@ message SearchGroup {
   // Human-readable group label.
   string title = 2;
 
-  // Optional named actions or locations for the group.
-  repeated NamedUri uris = 3;
+  // Optional openable targets for the group.
+  repeated OpenTarget targets = 3;
 }
 
 // Warning describes non-fatal provider degradation.

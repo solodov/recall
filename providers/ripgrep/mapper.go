@@ -1,0 +1,150 @@
+package ripgrep
+
+import (
+	"fmt"
+	"path/filepath"
+	"strings"
+
+	searchv1 "github.com/solodov/recall/proto/recall/search/v1"
+
+	"google.golang.org/protobuf/proto"
+)
+
+const (
+	// KindCodeMatch is the recall result kind emitted for ripgrep matches.
+	KindCodeMatch = "code_match"
+)
+
+// HitOptions controls how ripgrep match paths are presented in recall hits.
+type HitOptions struct {
+	Roots []string
+}
+
+// MatchesToSearchResponse converts ripgrep matches plus provider warnings into
+// a recall SearchResponse. Each matching line becomes one hit so repeated terms
+// on the same line do not crowd out distinct search results.
+func MatchesToSearchResponse(matches []Match, warnings []*searchv1.Warning, options HitOptions) *searchv1.SearchResponse {
+	return &searchv1.SearchResponse{
+		Hits:     HitsFromMatches(matches, options),
+		Warnings: cloneWarnings(warnings),
+	}
+}
+
+// HitsFromMatches converts parsed ripgrep match events into recall-friendly
+// hits grouped by source file for the default grouped renderer.
+func HitsFromMatches(matches []Match, options HitOptions) []*searchv1.SearchHit {
+	hits := make([]*searchv1.SearchHit, 0, len(matches))
+	for _, match := range matches {
+		hits = append(hits, hitFromMatch(match, options))
+	}
+	return hits
+}
+
+func hitFromMatch(match Match, options HitOptions) *searchv1.SearchHit {
+	absolutePath := absoluteMatchPath(match.Path, options.Roots)
+	displayPath := displayMatchPath(absolutePath, options.Roots)
+	column := firstSubmatchColumn(match)
+	lineNumber := match.LineNumber
+	if lineNumber == 0 {
+		lineNumber = 1
+	}
+
+	return &searchv1.SearchHit{
+		Id:      fmt.Sprintf("code_match:%s:%d:%d", absolutePath, lineNumber, column),
+		Kind:    KindCodeMatch,
+		Title:   fmt.Sprintf("%s:%d:%d", displayPath, lineNumber, column),
+		Snippet: proto.String(match.Line),
+		Targets: []*searchv1.OpenTarget{
+			fileTarget(absolutePath, lineNumber, column),
+		},
+		Group: &searchv1.SearchGroup{
+			Key:   displayPath,
+			Title: displayPath,
+			Targets: []*searchv1.OpenTarget{
+				fileTarget(absolutePath, 0, 0),
+			},
+		},
+	}
+}
+
+func firstSubmatchColumn(match Match) uint64 {
+	if len(match.Submatches) == 0 {
+		return 1
+	}
+	return match.Submatches[0].Start + 1
+}
+
+func absoluteMatchPath(path string, roots []string) string {
+	path = filepath.Clean(path)
+	if filepath.IsAbs(path) {
+		return path
+	}
+	for _, root := range roots {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			continue
+		}
+		return filepath.Clean(filepath.Join(root, path))
+	}
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return path
+	}
+	return absolute
+}
+
+func displayMatchPath(absolutePath string, roots []string) string {
+	for _, root := range roots {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			continue
+		}
+		if rel, ok := relativePath(root, absolutePath); ok {
+			return rel
+		}
+	}
+	return filepath.ToSlash(absolutePath)
+}
+
+func relativePath(root string, path string) (string, bool) {
+	absoluteRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", false
+	}
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		return "", false
+	}
+	relative, err := filepath.Rel(absoluteRoot, absolutePath)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	if relative == "." {
+		relative = filepath.Base(absolutePath)
+	}
+	return filepath.ToSlash(relative), true
+}
+
+func fileTarget(path string, line uint64, column uint64) *searchv1.OpenTarget {
+	target := &searchv1.FileTarget{Path: path}
+	if line > 0 && line <= maxUint32 {
+		target.Line = proto.Uint32(uint32(line))
+		if column > 0 && column <= maxUint32 {
+			target.Column = proto.Uint32(uint32(column))
+		}
+	}
+	return &searchv1.OpenTarget{Target: &searchv1.OpenTarget_File{File: target}}
+}
+
+const maxUint32 = uint64(^uint32(0))
+
+func cloneWarnings(warnings []*searchv1.Warning) []*searchv1.Warning {
+	cloned := make([]*searchv1.Warning, 0, len(warnings))
+	for _, warning := range warnings {
+		if warning == nil {
+			continue
+		}
+		cloned = append(cloned, proto.Clone(warning).(*searchv1.Warning))
+	}
+	return cloned
+}
