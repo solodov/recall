@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"os"
 	"os/exec"
@@ -49,6 +50,7 @@ type Runner func(context.Context, string, []string) error
 type Options struct {
 	Runner          Runner
 	FallbackCommand string
+	Logger          *slog.Logger
 }
 
 // ParseRecallURL decodes the recall:// URL emitted by terminal human output.
@@ -128,11 +130,48 @@ func Open(ctx context.Context, cfg *configv1.RecallConfig, targetURL string, opt
 		if command == "" {
 			return fmt.Errorf("opener %q command is empty", opener.GetId())
 		}
-		return runner(ctx, command, args)
+		return runAndLog(ctx, runner, options.Logger, targetURL, target, command, args, opener.GetId(), false)
 	}
 
 	command, args := fallbackInvocation(target, options)
-	return runner(ctx, command, args)
+	return runAndLog(ctx, runner, options.Logger, targetURL, target, command, args, "", true)
+}
+
+func runAndLog(ctx context.Context, runner Runner, logger *slog.Logger, recallURL string, target Target, command string, args []string, openerID string, fallback bool) error {
+	attrs := openLogAttrs(recallURL, target, command, args, openerID, fallback)
+	if logger != nil {
+		logger.InfoContext(ctx, "recall-open dispatch", attrs...)
+	}
+	err := runner(ctx, command, args)
+	if err != nil && logger != nil {
+		logger.ErrorContext(ctx, "recall-open dispatch failed", append(attrs, "error", err.Error())...)
+	}
+	return err
+}
+
+func openLogAttrs(recallURL string, target Target, command string, args []string, openerID string, fallback bool) []any {
+	attrs := []any{
+		"recall_url", recallURL,
+		"target_type", target.Type,
+		"command", command,
+		"args", args,
+		"fallback", fallback,
+	}
+	if openerID != "" {
+		attrs = append(attrs, "opener_id", openerID)
+	}
+	if target.Type == TargetTypeFile {
+		attrs = append(attrs, "target_path", target.Path)
+		if target.HasLine {
+			attrs = append(attrs, "line", target.Line)
+		}
+		if target.HasColumn {
+			attrs = append(attrs, "column", target.Column)
+		}
+	} else {
+		attrs = append(attrs, "target_uri", target.URI, "uri_scheme", target.URIScheme)
+	}
+	return attrs
 }
 
 func parseLocation(query url.Values, target *Target) error {

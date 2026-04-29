@@ -1,8 +1,11 @@
 package openers
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"reflect"
+	"strings"
 	"testing"
 
 	configv1 "github.com/solodov/recall/proto/recall/config/v1"
@@ -89,6 +92,32 @@ func TestOpenSkipsOpenerWithMissingPlaceholder(t *testing.T) {
 	}
 	if runner.command != "fallback-open" || !reflect.DeepEqual(runner.args, []string{"/workspace/main.kt"}) {
 		t.Fatalf("fallback runner = %q %#v", runner.command, runner.args)
+	}
+}
+
+func TestOpenLogsDispatch(t *testing.T) {
+	var logs bytes.Buffer
+	runner := &recordingRunner{}
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	recallURL := "recall://open?v=1&type=uri&uri=org-protocol%3A%2Froam-node%3Fnode%3D89808715-6315-4484-B726-DFC9F4F2345D"
+
+	err := Open(context.Background(), &configv1.RecallConfig{}, recallURL, Options{Runner: runner.Run, FallbackCommand: "fallback-open", Logger: logger})
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	logText := logs.String()
+	for _, want := range []string{
+		"recall-open dispatch",
+		"recall_url=",
+		"target_type=uri",
+		"target_uri=\"org-protocol:/roam-node?node=89808715-6315-4484-B726-DFC9F4F2345D\"",
+		"uri_scheme=org-protocol",
+		"command=fallback-open",
+		"fallback=true",
+	} {
+		if !strings.Contains(logText, want) {
+			t.Fatalf("dispatch log %q does not contain %q", logText, want)
+		}
 	}
 }
 
