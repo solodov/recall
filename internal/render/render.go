@@ -251,11 +251,11 @@ func groupedTimestampTarget(hit *searchv1.SearchHit) (time.Time, *searchv1.OpenT
 }
 
 func formatTimestampLabel(timestamp time.Time) string {
-	return timestamp.In(time.Local).Format("2006-01-02 15:04:05 MST")
+	return timestamp.In(time.Local).Format("2006-01-02 15:04:05")
 }
 
 func formatInlineTimestamp(timestamp time.Time) string {
-	return timestamp.In(time.Local).Format(time.RFC3339)
+	return timestamp.In(time.Local).Format("2006-01-02T15:04:05")
 }
 
 func fileTargetForOpen(target *searchv1.OpenTarget) *searchv1.FileTarget {

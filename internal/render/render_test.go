@@ -28,7 +28,7 @@ func TestWriteHumanDefaultsToGroupedTerminalLayout(t *testing.T) {
 	text := stripOSC8(rawText)
 	for _, want := range []string{
 		"[example:note:content] Procedure notes",
-		"  Sample rollout note 2026-04-28T11:30:00+02:00",
+		"  Sample rollout note 2026-04-28T11:30:00",
 		"    matched rollout context",
 		"    actions: https file",
 		"[example:note:content] Results",
@@ -60,7 +60,7 @@ func TestWriteHumanUngroupedRendersOpenTargetsMetadataAndWarnings(t *testing.T) 
 
 	text := stripOSC8(output.String())
 	for _, want := range []string{
-		"[example] Sample rollout note (note:content) 2026-04-28T11:30:00+02:00",
+		"[example] Sample rollout note (note:content) 2026-04-28T11:30:00",
 		"matched rollout context",
 		"actions: https file",
 		"[example] warning: fixture warning",
@@ -212,7 +212,7 @@ func TestWriteHumanGroupedRendersTimestampedURIRows(t *testing.T) {
 	text := stripOSC8(rawText)
 	for _, want := range []string{
 		"[slack:message:content] #fixtures",
-		"2026-04-29 12:15:30 TEST: matched message text",
+		"2026-04-29 12:15:30: matched message text",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("grouped message output %q does not contain %q", text, want)
