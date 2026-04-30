@@ -320,7 +320,9 @@ type SearchHit struct {
 	// Optional provider-preferred grouping identity.
 	Group *SearchGroup `protobuf:"bytes,7,opt,name=group,proto3" json:"group,omitempty"`
 	// Optional source-domain time useful for scanning the result, such as email
-	// sent time, calendar start time, or shell command execution time.
+	// sent time, calendar start time, or shell command execution time. Providers
+	// should populate UTC instants; recall renders human output in the operator's
+	// local timezone.
 	OccurredAt    *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=occurred_at,json=occurredAt,proto3" json:"occurred_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -495,11 +497,20 @@ func (*OpenTarget_Uri) isOpenTarget_Target() {}
 
 func (*OpenTarget_File) isOpenTarget_Target() {}
 
-// UriTarget is a generic URI-backed open target.
+// UriTarget is a generic URI-backed open target. Providers can attach an
+// optional timestamp when the URI identifies time-addressable content, such as a
+// chat message, log entry, transcript segment, or media position. Recall uses
+// that timestamp as the URI equivalent of a file line number when rendering
+// grouped result rows.
 type UriTarget struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// URI to open.
-	Uri           string `protobuf:"bytes,1,opt,name=uri,proto3" json:"uri,omitempty"`
+	Uri string `protobuf:"bytes,1,opt,name=uri,proto3" json:"uri,omitempty"`
+	// Optional source timestamp for this URI target. For chat providers this is
+	// typically the message timestamp; providers may also copy it to SearchHit
+	// occurred_at when it is useful for result scanning. Providers should populate
+	// UTC instants; recall renders human output in the operator's local timezone.
+	Timestamp     *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -539,6 +550,13 @@ func (x *UriTarget) GetUri() string {
 		return x.Uri
 	}
 	return ""
+}
+
+func (x *UriTarget) GetTimestamp() *timestamppb.Timestamp {
+	if x != nil {
+		return x.Timestamp
+	}
+	return nil
 }
 
 // FileTarget is a local file target with an optional 1-based position.
@@ -762,9 +780,10 @@ const file_proto_recall_search_v1_search_proto_rawDesc = "" +
 	"OpenTarget\x12/\n" +
 	"\x03uri\x18\x01 \x01(\v2\x1b.recall.search.v1.UriTargetH\x00R\x03uri\x122\n" +
 	"\x04file\x18\x02 \x01(\v2\x1c.recall.search.v1.FileTargetH\x00R\x04fileB\b\n" +
-	"\x06target\"\x1d\n" +
+	"\x06target\"W\n" +
 	"\tUriTarget\x12\x10\n" +
-	"\x03uri\x18\x01 \x01(\tR\x03uri\"j\n" +
+	"\x03uri\x18\x01 \x01(\tR\x03uri\x128\n" +
+	"\ttimestamp\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\ttimestamp\"j\n" +
 	"\n" +
 	"FileTarget\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x17\n" +
@@ -820,16 +839,17 @@ var file_proto_recall_search_v1_search_proto_depIdxs = []int32{
 	11, // 5: recall.search.v1.SearchHit.occurred_at:type_name -> google.protobuf.Timestamp
 	7,  // 6: recall.search.v1.OpenTarget.uri:type_name -> recall.search.v1.UriTarget
 	8,  // 7: recall.search.v1.OpenTarget.file:type_name -> recall.search.v1.FileTarget
-	6,  // 8: recall.search.v1.SearchGroup.targets:type_name -> recall.search.v1.OpenTarget
-	0,  // 9: recall.search.v1.SearchProvider.Search:input_type -> recall.search.v1.SearchRequest
-	1,  // 10: recall.search.v1.SearchProvider.ListCapabilities:input_type -> recall.search.v1.ListCapabilitiesRequest
-	4,  // 11: recall.search.v1.SearchProvider.Search:output_type -> recall.search.v1.SearchResponse
-	2,  // 12: recall.search.v1.SearchProvider.ListCapabilities:output_type -> recall.search.v1.ListCapabilitiesResponse
-	11, // [11:13] is the sub-list for method output_type
-	9,  // [9:11] is the sub-list for method input_type
-	9,  // [9:9] is the sub-list for extension type_name
-	9,  // [9:9] is the sub-list for extension extendee
-	0,  // [0:9] is the sub-list for field type_name
+	11, // 8: recall.search.v1.UriTarget.timestamp:type_name -> google.protobuf.Timestamp
+	6,  // 9: recall.search.v1.SearchGroup.targets:type_name -> recall.search.v1.OpenTarget
+	0,  // 10: recall.search.v1.SearchProvider.Search:input_type -> recall.search.v1.SearchRequest
+	1,  // 11: recall.search.v1.SearchProvider.ListCapabilities:input_type -> recall.search.v1.ListCapabilitiesRequest
+	4,  // 12: recall.search.v1.SearchProvider.Search:output_type -> recall.search.v1.SearchResponse
+	2,  // 13: recall.search.v1.SearchProvider.ListCapabilities:output_type -> recall.search.v1.ListCapabilitiesResponse
+	12, // [12:14] is the sub-list for method output_type
+	10, // [10:12] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_proto_recall_search_v1_search_proto_init() }

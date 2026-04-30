@@ -212,6 +212,11 @@ func validateURITarget(location string, target *searchv1.UriTarget) []error {
 	if parsed.Scheme == "" {
 		return []error{fmt.Errorf("%s.uri must include a scheme", location)}
 	}
+	if timestamp := target.GetTimestamp(); timestamp != nil {
+		if err := timestamp.CheckValid(); err != nil {
+			return []error{fmt.Errorf("%s.timestamp is invalid: %w", location, err)}
+		}
+	}
 	return nil
 }
 

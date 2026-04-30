@@ -16,6 +16,7 @@ import (
 )
 
 func TestWriteHumanDefaultsToGroupedTerminalLayout(t *testing.T) {
+	useLocalZone(t, "TEST", 2*60*60)
 	var output bytes.Buffer
 	result := renderFixtureResult()
 
@@ -26,11 +27,11 @@ func TestWriteHumanDefaultsToGroupedTerminalLayout(t *testing.T) {
 	rawText := output.String()
 	text := stripOSC8(rawText)
 	for _, want := range []string{
-		"[example:note] Procedure notes",
-		"  Sample rollout note 2026-04-28T09:30:00Z",
+		"[example:note:content] Procedure notes",
+		"  Sample rollout note 2026-04-28T11:30:00+02:00",
 		"    matched rollout context",
 		"    actions: https file",
-		"[example:note] Results",
+		"[example:note:content] Results",
 		"  Loose hit",
 		"[example] warning: fixture warning",
 	} {
@@ -38,7 +39,7 @@ func TestWriteHumanDefaultsToGroupedTerminalLayout(t *testing.T) {
 			t.Fatalf("human output %q does not contain %q", text, want)
 		}
 	}
-	for _, unwanted := range []string{"# example", "## Procedure notes", "(note)"} {
+	for _, unwanted := range []string{"# example", "## Procedure notes", "(note:content)"} {
 		if strings.Contains(text, unwanted) {
 			t.Fatalf("human output %q contains terminal noise %q", text, unwanted)
 		}
@@ -49,6 +50,7 @@ func TestWriteHumanDefaultsToGroupedTerminalLayout(t *testing.T) {
 }
 
 func TestWriteHumanUngroupedRendersOpenTargetsMetadataAndWarnings(t *testing.T) {
+	useLocalZone(t, "TEST", 2*60*60)
 	var output bytes.Buffer
 	result := renderFixtureResult()
 
@@ -58,7 +60,7 @@ func TestWriteHumanUngroupedRendersOpenTargetsMetadataAndWarnings(t *testing.T) 
 
 	text := stripOSC8(output.String())
 	for _, want := range []string{
-		"[example] Sample rollout note (note) 2026-04-28T09:30:00Z",
+		"[example] Sample rollout note (note:content) 2026-04-28T11:30:00+02:00",
 		"matched rollout context",
 		"actions: https file",
 		"[example] warning: fixture warning",
@@ -78,7 +80,7 @@ func TestWriteHumanGroupedSuppressesGroupFileAction(t *testing.T) {
 	}
 
 	text := stripOSC8(output.String())
-	for _, want := range []string{"[org:org_entry] notes.org", "  Matched org entry"} {
+	for _, want := range []string{"[org:entry:content] notes.org", "  Matched org entry"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("grouped org output %q does not contain %q", text, want)
 		}
@@ -99,11 +101,11 @@ func TestWriteHumanGroupedLinksSourceLabelToProviderConfig(t *testing.T) {
 	}
 
 	rawText := output.String()
-	if !strings.Contains(stripOSC8(rawText), "[code:content] styleguide/kotlin/formatting.md") {
+	if !strings.Contains(stripOSC8(rawText), "[code:file:content] styleguide/kotlin/formatting.md") {
 		t.Fatalf("grouped output %q does not keep source label shape", rawText)
 	}
-	wantURL := "recall://open?column=1&kind=code_match&line=17&path=%2Fworkspace%2Fconfig%2Frecall.txtpb&source=code&type=file&v=1"
-	if !strings.Contains(rawText, wantURL) || !strings.Contains(rawText, groupLabelStyle+"[code:content]"+resetStyle) {
+	wantURL := "recall://open?column=1&line=17&path=%2Fworkspace%2Fconfig%2Frecall.txtpb&selector=file%3Acontent&source=code&type=file&v=1"
+	if !strings.Contains(rawText, wantURL) || !strings.Contains(rawText, groupLabelStyle+"[code:file:content]"+resetStyle) {
 		t.Fatalf("grouped output %q does not link styled source label to config target %q", rawText, wantURL)
 	}
 }
@@ -119,19 +121,19 @@ func TestWriteHumanGroupedRendersFileLinesWithLinkedSnippets(t *testing.T) {
 	rawText := output.String()
 	text := stripOSC8(rawText)
 	for _, want := range []string{
-		"[code:content] styleguide/kotlin/formatting.md",
+		"[code:file:content] styleguide/kotlin/formatting.md",
 		"     51: fun createSampleItem(flavor: Flavor): SampleItem = when(flavor) {",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("grouped code output %q does not contain %q", text, want)
 		}
 	}
-	for _, unwanted := range []string{"# code", "## styleguide/kotlin/formatting.md", "[code] styleguide/kotlin/formatting.md:51:11", "file:///workspace/codebase/styleguide/kotlin/formatting.md", "(code_match)"} {
+	for _, unwanted := range []string{"# code", "## styleguide/kotlin/formatting.md", "[code] styleguide/kotlin/formatting.md:51:11", "file:///workspace/codebase/styleguide/kotlin/formatting.md", "(file:content)"} {
 		if strings.Contains(text, unwanted) {
 			t.Fatalf("grouped code output %q contains noisy metadata %q", text, unwanted)
 		}
 	}
-	groupURL := "recall://open?kind=code_match&path=%2Fworkspace%2Fcodebase%2Fstyleguide%2Fkotlin%2Fformatting.md&source=code&type=file&v=1"
+	groupURL := "recall://open?path=%2Fworkspace%2Fcodebase%2Fstyleguide%2Fkotlin%2Fformatting.md&selector=file%3Acontent&source=code&type=file&v=1"
 	if !strings.Contains(rawText, groupURL) {
 		t.Fatalf("grouped code output %q does not contain file group recall target %q", rawText, groupURL)
 	}
@@ -164,13 +166,62 @@ func TestWriteHumanUngroupedRendersCodeMatchesCompactly(t *testing.T) {
 			t.Fatalf("code output %q does not contain %q", text, want)
 		}
 	}
-	for _, unwanted := range []string{"file:///workspace/codebase/styleguide/kotlin/formatting.md", "(code_match)"} {
+	for _, unwanted := range []string{"file:///workspace/codebase/styleguide/kotlin/formatting.md", "(file:content)"} {
 		if strings.Contains(text, unwanted) {
 			t.Fatalf("code output %q contains noisy metadata %q", text, unwanted)
 		}
 	}
 	if !strings.Contains(rawText, "recall://open?") || !strings.Contains(rawText, "path=%2Fworkspace%2Fcodebase%2Fstyleguide%2Fkotlin%2Fformatting.md") {
 		t.Fatalf("code output %q does not contain file recall target", rawText)
+	}
+}
+
+func TestWriteHumanGroupedRendersTimestampedURIRows(t *testing.T) {
+	useLocalZone(t, "TEST", 2*60*60)
+	var output bytes.Buffer
+	messageTime := time.Date(2026, 4, 29, 10, 15, 30, 123456000, time.UTC)
+	hit := &searchv1.SearchHit{
+		Id:       "message:1",
+		Selector: "message:content",
+		Title:    "Message from fixture channel",
+		Snippet:  proto.String("matched message text"),
+		Targets: []*searchv1.OpenTarget{
+			timestampedURITarget("https://example.invalid/archives/C1/p1777467330123456", messageTime),
+		},
+		Group: &searchv1.SearchGroup{
+			Key:     "channel:C1",
+			Title:   "#fixtures",
+			Targets: []*searchv1.OpenTarget{uriTarget("https://example.invalid/archives/C1")},
+		},
+	}
+	result := &orchestrator.Result{Responses: []orchestrator.ProviderResponse{{
+		ProviderID: "slack",
+		Hits: []normalize.Hit{{
+			ProviderID:   "slack",
+			ProviderRank: 1,
+			Hit:          hit,
+		}},
+		Raw: &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{hit}},
+	}}}
+
+	if err := WriteHuman(&output, result, HumanOptions{}); err != nil {
+		t.Fatalf("WriteHuman returned error: %v", err)
+	}
+
+	rawText := output.String()
+	text := stripOSC8(rawText)
+	for _, want := range []string{
+		"[slack:message:content] #fixtures",
+		"2026-04-29 12:15:30 TEST: matched message text",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("grouped message output %q does not contain %q", text, want)
+		}
+	}
+	for _, want := range []string{"type=uri", "timestamp=2026-04-29T10%3A15%3A30.123456Z"} {
+		if !strings.Contains(rawText, want) {
+			t.Fatalf("grouped message output %q does not contain recall URL parameter %q", rawText, want)
+		}
 	}
 }
 
@@ -200,7 +251,7 @@ func TestWriteJSONPreservesProviderResponsesAndFailures(t *testing.T) {
 			Response   struct {
 				Hits []struct {
 					ID         string `json:"id"`
-					Kind       string `json:"kind"`
+					Selector   string `json:"selector"`
 					Title      string `json:"title"`
 					Snippet    string `json:"snippet"`
 					OccurredAt string `json:"occurred_at"`
@@ -252,9 +303,9 @@ func TestWriteJSONPreservesProviderResponsesAndFailures(t *testing.T) {
 
 func orgEntryResult() *orchestrator.Result {
 	hit := &searchv1.SearchHit{
-		Id:    "org:entry",
-		Selector:  "org_entry",
-		Title: "Matched org entry",
+		Id:       "org:entry",
+		Selector: "entry:content",
+		Title:    "Matched org entry",
 		Targets: []*searchv1.OpenTarget{
 			uriTarget("org-protocol:/roam-node?node=89808715-6315-4484-B726-DFC9F4F2345D"),
 			fileTarget("/tmp/notes.org", 12, 1),
@@ -278,11 +329,11 @@ func orgEntryResult() *orchestrator.Result {
 
 func codeMatchResult() *orchestrator.Result {
 	hit := &searchv1.SearchHit{
-		Id:      "code_match:/workspace/codebase/styleguide/kotlin/formatting.md:51:11",
-		Selector:    "code_match",
-		Title:   "styleguide/kotlin/formatting.md:51:11",
-		Snippet: proto.String("fun createSampleItem(flavor: Flavor): SampleItem = when(flavor) {"),
-		Targets: []*searchv1.OpenTarget{fileTarget("/workspace/codebase/styleguide/kotlin/formatting.md", 51, 11)},
+		Id:       "file_content:/workspace/codebase/styleguide/kotlin/formatting.md:51:11",
+		Selector: "file:content",
+		Title:    "styleguide/kotlin/formatting.md:51:11",
+		Snippet:  proto.String("fun createSampleItem(flavor: Flavor): SampleItem = when(flavor) {"),
+		Targets:  []*searchv1.OpenTarget{fileTarget("/workspace/codebase/styleguide/kotlin/formatting.md", 51, 11)},
 		Group: &searchv1.SearchGroup{
 			Key:     "styleguide/kotlin/formatting.md",
 			Title:   "styleguide/kotlin/formatting.md",
@@ -304,7 +355,7 @@ func renderFixtureResult() *orchestrator.Result {
 	occurredAt := timestamppb.New(time.Date(2026, 4, 28, 9, 30, 0, 0, time.UTC))
 	rolloutHit := &searchv1.SearchHit{
 		Id:         "rollout",
-		Selector:       "note",
+		Selector:   "note:content",
 		Title:      "Sample rollout note",
 		Snippet:    proto.String("matched rollout context"),
 		Score:      proto.Float64(1.2),
@@ -321,10 +372,10 @@ func renderFixtureResult() *orchestrator.Result {
 		},
 	}
 	looseHit := &searchv1.SearchHit{
-		Id:      "loose",
-		Selector:    "note",
-		Title:   "Loose hit",
-		Targets: []*searchv1.OpenTarget{fileTarget("/tmp/loose.md", 0, 0)},
+		Id:       "loose",
+		Selector: "note:content",
+		Title:    "Loose hit",
+		Targets:  []*searchv1.OpenTarget{fileTarget("/tmp/loose.md", 0, 0)},
 	}
 	warning := &searchv1.Warning{Message: "fixture warning", Code: proto.String("fixture_warning")}
 	raw := &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{rolloutHit, looseHit}, Warnings: []*searchv1.Warning{warning}}
@@ -343,6 +394,10 @@ func uriTarget(uri string) *searchv1.OpenTarget {
 	return &searchv1.OpenTarget{Target: &searchv1.OpenTarget_Uri{Uri: &searchv1.UriTarget{Uri: uri}}}
 }
 
+func timestampedURITarget(uri string, timestamp time.Time) *searchv1.OpenTarget {
+	return &searchv1.OpenTarget{Target: &searchv1.OpenTarget_Uri{Uri: &searchv1.UriTarget{Uri: uri, Timestamp: timestamppb.New(timestamp)}}}
+}
+
 func fileTarget(path string, line uint32, column uint32) *searchv1.OpenTarget {
 	target := &searchv1.FileTarget{Path: path}
 	if line > 0 {
@@ -352,6 +407,13 @@ func fileTarget(path string, line uint32, column uint32) *searchv1.OpenTarget {
 		target.Column = proto.Uint32(column)
 	}
 	return &searchv1.OpenTarget{Target: &searchv1.OpenTarget_File{File: target}}
+}
+
+func useLocalZone(t *testing.T, name string, offsetSeconds int) {
+	t.Helper()
+	previous := time.Local
+	time.Local = time.FixedZone(name, offsetSeconds)
+	t.Cleanup(func() { time.Local = previous })
 }
 
 func stripOSC8(text string) string {

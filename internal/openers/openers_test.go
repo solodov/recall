@@ -12,11 +12,11 @@ import (
 )
 
 func TestParseRecallURLDecodesFileTarget(t *testing.T) {
-	target, err := ParseRecallURL("recall://open?v=1&source=code&kind=code_match&type=file&path=%2Fworkspace%2Fmain.kt&line=12&column=4")
+	target, err := ParseRecallURL("recall://open?v=1&source=code&selector=file%3Acontent&type=file&path=%2Fworkspace%2Fmain.kt&line=12&column=4")
 	if err != nil {
 		t.Fatalf("ParseRecallURL returned error: %v", err)
 	}
-	if target.Source != "code" || target.Kind != "code_match" || target.Type != TargetTypeFile || target.Path != "/workspace/main.kt" {
+	if target.Source != "code" || target.Selector != "file:content" || target.Type != TargetTypeFile || target.Path != "/workspace/main.kt" {
 		t.Fatalf("target metadata = %#v", target)
 	}
 	if !target.HasLine || target.Line != 12 || !target.HasColumn || target.Column != 4 {
@@ -41,7 +41,7 @@ func TestOpenPrefersSpecificOpenerOverGenericDefault(t *testing.T) {
 		{
 			Id:          "code",
 			Sources:     []string{"code"},
-			Kinds:       []string{"code_match"},
+			Selectors:   []string{"file:content"},
 			TargetTypes: []string{TargetTypeFile},
 			Command:     "editor",
 			Args:        []string{"+call cursor({line}, {column})", "{path}"},
@@ -49,7 +49,7 @@ func TestOpenPrefersSpecificOpenerOverGenericDefault(t *testing.T) {
 	}}
 	runner := &recordingRunner{}
 
-	err := Open(context.Background(), cfg, "recall://open?v=1&source=code&kind=code_match&type=file&path=%2Fworkspace%2Fmain.kt&line=12&column=4", Options{Runner: runner.Run})
+	err := Open(context.Background(), cfg, "recall://open?v=1&source=code&selector=file%3Acontent&type=file&path=%2Fworkspace%2Fmain.kt&line=12&column=4", Options{Runner: runner.Run})
 	if err != nil {
 		t.Fatalf("Open returned error: %v", err)
 	}
@@ -67,12 +67,30 @@ func TestOpenUsesGenericFileOpenerAsDefault(t *testing.T) {
 	}}}
 	runner := &recordingRunner{}
 
-	err := Open(context.Background(), cfg, "recall://open?v=1&source=org&kind=org_entry&type=file&path=%2Fworkspace%2Fconfig.txtpb&line=14&column=1", Options{Runner: runner.Run})
+	err := Open(context.Background(), cfg, "recall://open?v=1&source=org&selector=entry%3Acontent&type=file&path=%2Fworkspace%2Fconfig.txtpb&line=14&column=1", Options{Runner: runner.Run})
 	if err != nil {
 		t.Fatalf("Open returned error: %v", err)
 	}
 	if runner.command != "editor" || !reflect.DeepEqual(runner.args, []string{"--no-wait", "+14:1", "/workspace/config.txtpb"}) {
 		t.Fatalf("runner = %q %#v, want generic file opener", runner.command, runner.args)
+	}
+}
+
+func TestOpenExpandsURITimestampPlaceholder(t *testing.T) {
+	cfg := &configv1.RecallConfig{Openers: []*configv1.Opener{{
+		Id:          "slack",
+		TargetTypes: []string{TargetTypeURI},
+		Command:     "open-message",
+		Args:        []string{"{uri}", "{timestamp}"},
+	}}}
+	runner := &recordingRunner{}
+
+	err := Open(context.Background(), cfg, "recall://open?v=1&type=uri&uri=https%3A%2F%2Fexample.invalid%2Fmessage&timestamp=2026-04-29T10%3A15%3A30.123456Z", Options{Runner: runner.Run})
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	if runner.command != "open-message" || !reflect.DeepEqual(runner.args, []string{"https://example.invalid/message", "2026-04-29T10:15:30.123456Z"}) {
+		t.Fatalf("runner = %q %#v", runner.command, runner.args)
 	}
 }
 

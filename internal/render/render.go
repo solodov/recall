@@ -83,7 +83,7 @@ func writeHumanHit(writer io.Writer, normalized normalize.Hit, indent string) {
 		fmt.Fprintf(writer, " (%s)", selector)
 	}
 	if occurredAt := hit.GetOccurredAt(); occurredAt != nil && occurredAt.IsValid() {
-		fmt.Fprintf(writer, " %s", occurredAt.AsTime().UTC().Format(time.RFC3339))
+		fmt.Fprintf(writer, " %s", formatInlineTimestamp(occurredAt.AsTime()))
 	}
 	fmt.Fprintln(writer)
 	if snippet := strings.TrimSpace(hit.GetSnippet()); snippet != "" {
@@ -98,7 +98,7 @@ func writeCompactCodeHit(writer io.Writer, normalized normalize.Hit, indent stri
 	hit := normalized.Hit
 	fmt.Fprintf(writer, "%s[%s] %s", indent, normalized.ProviderID, linkedTitle(normalized.ProviderID, hit))
 	if occurredAt := hit.GetOccurredAt(); occurredAt != nil && occurredAt.IsValid() {
-		fmt.Fprintf(writer, " %s", occurredAt.AsTime().UTC().Format(time.RFC3339))
+		fmt.Fprintf(writer, " %s", formatInlineTimestamp(occurredAt.AsTime()))
 	}
 	fmt.Fprintln(writer)
 	if snippet := strings.TrimSpace(hit.GetSnippet()); snippet != "" {
@@ -124,10 +124,20 @@ func writeGroupedHit(writer io.Writer, providerID string, group groupedHits, nor
 		}
 		return
 	}
+	if timestamp, target, ok := groupedTimestampTarget(hit); ok {
+		label := groupedHitLabel(hit)
+		timeLabel := styleLineNumber(formatTimestampLabel(timestamp) + ":")
+		fmt.Fprintf(writer, "  %s %s", timeLabel, terminalLink(label, recallOpenURL(providerID, hit.GetSelector(), target)))
+		fmt.Fprintln(writer)
+		if actions := groupedSecondaryActions(providerID, hit.GetSelector(), group, hit.GetTargets()); actions != "" {
+			fmt.Fprintf(writer, "    actions: %s\n", actions)
+		}
+		return
+	}
 
 	fmt.Fprintf(writer, "  %s", linkedTitle(providerID, hit))
 	if occurredAt := hit.GetOccurredAt(); occurredAt != nil && occurredAt.IsValid() {
-		fmt.Fprintf(writer, " %s", occurredAt.AsTime().UTC().Format(time.RFC3339))
+		fmt.Fprintf(writer, " %s", formatInlineTimestamp(occurredAt.AsTime()))
 	}
 	fmt.Fprintln(writer)
 	if snippet := groupedSnippet(hit); snippet != "" {
@@ -224,6 +234,28 @@ func groupedLineTarget(group groupedHits, hit *searchv1.SearchHit) (*searchv1.Fi
 		return nil, nil, false
 	}
 	return hitFile, target, true
+}
+
+func groupedTimestampTarget(hit *searchv1.SearchHit) (time.Time, *searchv1.OpenTarget, bool) {
+	target := firstTarget(hit.GetTargets())
+	if target == nil || target.GetUri() == nil {
+		return time.Time{}, nil, false
+	}
+	if timestamp := target.GetUri().GetTimestamp(); timestamp != nil && timestamp.IsValid() {
+		return timestamp.AsTime(), target, true
+	}
+	if occurredAt := hit.GetOccurredAt(); occurredAt != nil && occurredAt.IsValid() {
+		return occurredAt.AsTime(), target, true
+	}
+	return time.Time{}, nil, false
+}
+
+func formatTimestampLabel(timestamp time.Time) string {
+	return timestamp.In(time.Local).Format("2006-01-02 15:04:05 MST")
+}
+
+func formatInlineTimestamp(timestamp time.Time) string {
+	return timestamp.In(time.Local).Format(time.RFC3339)
 }
 
 func fileTargetForOpen(target *searchv1.OpenTarget) *searchv1.FileTarget {
@@ -504,6 +536,9 @@ func recallOpenURL(providerID string, selector string, target *searchv1.OpenTarg
 	} else if uriTarget := target.GetUri(); uriTarget != nil {
 		values.Set("type", "uri")
 		values.Set("uri", uriTarget.GetUri())
+		if timestamp := uriTarget.GetTimestamp(); timestamp != nil && timestamp.IsValid() {
+			values.Set("timestamp", timestamp.AsTime().UTC().Format(time.RFC3339Nano))
+		}
 	} else {
 		return ""
 	}

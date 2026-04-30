@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	configv1 "github.com/solodov/recall/proto/recall/config/v1"
 )
@@ -41,6 +42,9 @@ type Target struct {
 	HasLine   bool
 	Column    uint32
 	HasColumn bool
+
+	Timestamp    string
+	HasTimestamp bool
 }
 
 // Runner executes one local opener command without a shell.
@@ -82,6 +86,9 @@ func ParseRecallURL(raw string) (Target, error) {
 		Source:   strings.TrimSpace(query.Get("source")),
 		Selector: strings.TrimSpace(query.Get("selector")),
 		Type:     strings.TrimSpace(query.Get("type")),
+	}
+	if err := parseTimestamp(query, &target); err != nil {
+		return Target{}, err
 	}
 	switch target.Type {
 	case TargetTypeFile:
@@ -193,8 +200,25 @@ func openLogAttrs(recallURL string, target Target, command string, args []string
 		}
 	} else {
 		attrs = append(attrs, "target_uri", target.URI, "uri_scheme", target.URIScheme)
+		if target.HasTimestamp {
+			attrs = append(attrs, "timestamp", target.Timestamp)
+		}
 	}
 	return attrs
+}
+
+func parseTimestamp(query url.Values, target *Target) error {
+	value := strings.TrimSpace(query.Get("timestamp"))
+	if value == "" {
+		return nil
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return fmt.Errorf("timestamp must be RFC3339: %w", err)
+	}
+	target.Timestamp = parsed.UTC().Format(time.RFC3339Nano)
+	target.HasTimestamp = true
+	return nil
 }
 
 func parseLocation(query url.Values, target *Target) error {
@@ -324,6 +348,11 @@ func placeholderValue(name string, target Target) (string, bool, error) {
 		return optionalValue(target.URI)
 	case "path":
 		return optionalValue(target.Path)
+	case "timestamp":
+		if !target.HasTimestamp {
+			return "", false, nil
+		}
+		return target.Timestamp, true, nil
 	case "line":
 		if !target.HasLine {
 			return "", false, nil

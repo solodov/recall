@@ -19,3 +19,16 @@ func TestSearchRequestV1KeepsStableQueryLimitAndSelectorHints(t *testing.T) {
 		t.Fatalf("field 3 = %v, want repeated selector_hints", field)
 	}
 }
+
+func TestURITargetV1KeepsStableURIAndTimestamp(t *testing.T) {
+	fields := File_proto_recall_search_v1_search_proto.Messages().ByName("UriTarget").Fields()
+	if fields.Len() != 2 {
+		t.Fatalf("UriTarget field count = %d, want uri and timestamp", fields.Len())
+	}
+	if field := fields.ByNumber(1); field == nil || string(field.Name()) != "uri" {
+		t.Fatalf("field 1 = %v, want uri", field)
+	}
+	if field := fields.ByNumber(2); field == nil || string(field.Name()) != "timestamp" {
+		t.Fatalf("field 2 = %v, want timestamp", field)
+	}
+}

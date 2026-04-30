@@ -169,7 +169,9 @@ message SearchHit {
   SearchGroup group = 7;
 
   // Optional source-domain time useful for scanning the result, such as email
-  // sent time, calendar start time, or shell command execution time.
+  // sent time, calendar start time, or shell command execution time. Providers
+  // should populate UTC instants; recall renders human output in the operator's
+  // local timezone.
   google.protobuf.Timestamp occurred_at = 8;
 }
 
@@ -181,10 +183,20 @@ message OpenTarget {
   }
 }
 
-// UriTarget is a generic URI-backed open target.
+// UriTarget is a generic URI-backed open target. Providers can attach an
+// optional timestamp when the URI identifies time-addressable content, such as a
+// chat message, log entry, transcript segment, or media position. Recall uses
+// that timestamp as the URI equivalent of a file line number when rendering
+// grouped result rows.
 message UriTarget {
   // URI to open.
   string uri = 1;
+
+  // Optional source timestamp for this URI target. For chat providers this is
+  // typically the message timestamp; providers may also copy it to SearchHit
+  // occurred_at when it is useful for result scanning. Providers should populate
+  // UTC instants; recall renders human output in the operator's local timezone.
+  google.protobuf.Timestamp timestamp = 2;
 }
 
 // FileTarget is a local file target with an optional 1-based position.

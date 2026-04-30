@@ -15,11 +15,11 @@ func TestSearchResponseAnnotatesValidatedHitsAndWarnings(t *testing.T) {
 	response := &searchv1.SearchResponse{
 		Hits: []*searchv1.SearchHit{
 			{
-				Id:      "hit-1",
-				Selector:    "note",
-				Title:   "First hit",
-				Snippet: proto.String("matched context"),
-				Score:   proto.Float64(1.23),
+				Id:       "hit-1",
+				Selector: "note:content",
+				Title:    "First hit",
+				Snippet:  proto.String("matched context"),
+				Score:    proto.Float64(1.23),
 				Targets: []*searchv1.OpenTarget{
 					fileTarget("/tmp/first.md", 12, 3),
 				},
@@ -76,11 +76,12 @@ func TestSearchResponseRejectsMalformedHitsGroupsTargetsAndWarnings(t *testing.T
 	response := &searchv1.SearchResponse{
 		Hits: []*searchv1.SearchHit{
 			{
-				Id:    "",
-				Selector:  "",
-				Title: "",
+				Id:       "",
+				Selector: "",
+				Title:    "",
 				Targets: []*searchv1.OpenTarget{
 					{Target: &searchv1.OpenTarget_Uri{Uri: &searchv1.UriTarget{Uri: "relative/path"}}},
+					{Target: &searchv1.OpenTarget_Uri{Uri: &searchv1.UriTarget{Uri: "https://example.invalid", Timestamp: &timestamppb.Timestamp{Seconds: 253402300800}}}},
 					{Target: &searchv1.OpenTarget_File{File: &searchv1.FileTarget{Path: "relative/path", Column: proto.Uint32(2)}}},
 				},
 				Group: &searchv1.SearchGroup{
@@ -101,11 +102,12 @@ func TestSearchResponseRejectsMalformedHitsGroupsTargetsAndWarnings(t *testing.T
 	message := err.Error()
 	for _, want := range []string{
 		"hits[0].id",
-		"hits[0].kind",
+		"hits[0].selector",
 		"hits[0].title",
 		"hits[0].targets[0].uri.uri must include a scheme",
-		"hits[0].targets[1].file.path must be absolute",
-		"hits[0].targets[1].file.column requires line",
+		"hits[0].targets[1].uri.timestamp is invalid",
+		"hits[0].targets[2].file.path must be absolute",
+		"hits[0].targets[2].file.column requires line",
 		"hits[0].group.key",
 		"hits[0].group.title",
 		"hits[0].group.targets[0].uri.uri",
@@ -121,10 +123,10 @@ func TestSearchResponseRejectsMalformedHitsGroupsTargetsAndWarnings(t *testing.T
 
 func TestSearchResponseRejectsNonFiniteScore(t *testing.T) {
 	response := &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{{
-		Id:    "hit",
-		Selector:  "note",
-		Title: "Hit",
-		Score: proto.Float64(math.NaN()),
+		Id:       "hit",
+		Selector: "note:content",
+		Title:    "Hit",
+		Score:    proto.Float64(math.NaN()),
 	}}}
 
 	err := firstError(SearchResponse("example", response))
@@ -133,9 +135,9 @@ func TestSearchResponseRejectsNonFiniteScore(t *testing.T) {
 	}
 }
 
-func TestFilterKindsKeepsOnlyRequestedSelectorsAfterProviderSearch(t *testing.T) {
-	noteHit := &searchv1.SearchHit{Id: "note-1", Selector: "note", Title: "Note"}
-	eventHit := &searchv1.SearchHit{Id: "event-1", Selector: "event", Title: "Event"}
+func TestFilterSelectorsKeepsOnlyRequestedSelectorsAfterProviderSearch(t *testing.T) {
+	noteHit := &searchv1.SearchHit{Id: "note-1", Selector: "note:content", Title: "Note"}
+	eventHit := &searchv1.SearchHit{Id: "event-1", Selector: "event:content", Title: "Event"}
 	warning := &searchv1.Warning{Message: "provider warning"}
 	response := ProviderResponse{
 		ProviderID: "example",
@@ -147,7 +149,7 @@ func TestFilterKindsKeepsOnlyRequestedSelectorsAfterProviderSearch(t *testing.T)
 		Raw:      &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{noteHit, eventHit}, Warnings: []*searchv1.Warning{warning}},
 	}
 
-	filtered := FilterKinds(response, map[string]bool{"event": true})
+	filtered := FilterSelectors(response, []string{"event"})
 
 	if len(filtered.Hits) != 1 || filtered.Hits[0].Hit.GetId() != "event-1" {
 		t.Fatalf("filtered hits = %#v, want only event hit", filtered.Hits)
