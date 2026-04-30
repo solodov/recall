@@ -11,8 +11,8 @@ import (
 type SearchKind string
 
 const (
-	SearchKindContent SearchKind = "content"
-	SearchKindPath    SearchKind = "path"
+	SearchKindContent SearchKind = SelectorFileContent
+	SearchKindPath    SearchKind = SelectorFileName
 )
 
 // PathFilter matches root-relative slash-normalized file paths before a search.
@@ -32,7 +32,7 @@ type Query struct {
 // ParseQuery translates the ripgrep provider query language. Free text becomes
 // literal content search text and a path-name substring, type:foo restricts
 // ripgrep file types, and in:regex / -in:regex filter root-relative file paths.
-// Recall-level --kind/-k is sent separately as advisory SearchRequest hints.
+// Recall-level selectors are sent separately as advisory SearchRequest hints.
 func ParseQuery(input string) (Query, error) {
 	var query Query
 	var patternTerms []string

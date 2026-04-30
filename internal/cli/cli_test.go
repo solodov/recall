@@ -40,7 +40,7 @@ func TestRunLoadsConfigSearchesAndRendersResults(t *testing.T) {
 					ProviderRank: 1,
 					Hit: &searchv1.SearchHit{
 						Id:      "example:1",
-						Kind:    "note",
+						Selector:    "note",
 						Title:   "Example result",
 						Snippet: stringPtr("matched text"),
 					},
@@ -103,7 +103,7 @@ providers {
 					ProviderRank: 1,
 					Hit: &searchv1.SearchHit{
 						Id:    "configured:1",
-						Kind:  "note",
+						Selector:  "note",
 						Title: "Configured result",
 					},
 				}},

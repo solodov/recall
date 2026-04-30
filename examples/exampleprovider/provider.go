@@ -37,6 +37,14 @@ func (provider *Provider) Serve(ctx context.Context, stdin io.Reader, stdout io.
 	})
 }
 
+// ListCapabilities advertises the deterministic fixture selectors.
+func (provider *Provider) ListCapabilities(context.Context, *searchv1.ListCapabilitiesRequest) (*searchv1.ListCapabilitiesResponse, error) {
+	return &searchv1.ListCapabilitiesResponse{Surfaces: []*searchv1.SearchSurface{
+		{Selector: "note:content", Title: "Fixture notes", Description: "Search synthetic note titles and body text"},
+		{Selector: "event:content", Title: "Fixture events", Description: "Search synthetic event titles and body text"},
+	}}, nil
+}
+
 // Search returns best-first fixture hits matching all query terms.
 func (provider *Provider) Search(ctx context.Context, request *searchv1.SearchRequest) (*searchv1.SearchResponse, error) {
 	if request == nil {
@@ -79,7 +87,7 @@ func ServeDefault(ctx context.Context) error {
 
 type fixtureDocument struct {
 	id         string
-	kind       string
+	selector   string
 	title      string
 	snippet    string
 	score      float64
@@ -91,7 +99,7 @@ type fixtureDocument struct {
 func (document fixtureDocument) matches(terms []string) bool {
 	text := strings.ToLower(strings.Join([]string{
 		document.id,
-		document.kind,
+		document.selector,
 		document.title,
 		document.snippet,
 		document.group.GetTitle(),
@@ -106,9 +114,9 @@ func (document fixtureDocument) matches(terms []string) bool {
 
 func (document fixtureDocument) hit() *searchv1.SearchHit {
 	return &searchv1.SearchHit{
-		Id:         document.id,
-		Kind:       document.kind,
-		Title:      document.title,
+		Id:       document.id,
+		Selector: document.selector,
+		Title:    document.title,
 		Snippet:    proto.String(document.snippet),
 		Score:      proto.Float64(document.score),
 		Targets:    cloneOpenTargets(document.targets),
@@ -120,9 +128,9 @@ func (document fixtureDocument) hit() *searchv1.SearchHit {
 func defaultFixtureDocuments() []fixtureDocument {
 	documents := []fixtureDocument{
 		{
-			id:      "example:rollout-note",
-			kind:    "note",
-			title:   "Sample rollout note",
+			id:       "example:rollout-note",
+			selector: "note:content",
+			title:    "Sample rollout note",
 			snippet: "Checklist for staged rollouts, fallback commands, and verification steps.",
 			score:   0.98,
 			targets: []*searchv1.OpenTarget{
@@ -137,9 +145,9 @@ func defaultFixtureDocuments() []fixtureDocument {
 			occurredAt: time.Date(2026, 4, 28, 9, 30, 0, 0, time.UTC),
 		},
 		{
-			id:      "example:planning-session",
-			kind:    "event",
-			title:   "Fixture planning session",
+			id:       "example:planning-session",
+			selector: "event:content",
+			title:    "Fixture planning session",
 			snippet: "Synthetic calendar event covering risks, owners, and follow-up notes.",
 			score:   0.91,
 			targets: []*searchv1.OpenTarget{
@@ -154,9 +162,9 @@ func defaultFixtureDocuments() []fixtureDocument {
 			occurredAt: time.Date(2026, 4, 27, 16, 0, 0, 0, time.UTC),
 		},
 		{
-			id:      "example:recall-design",
-			kind:    "note",
-			title:   "Recall provider design",
+			id:       "example:recall-design",
+			selector: "note:content",
+			title:    "Recall provider design",
 			snippet: "Federated search design using protobuf SearchProvider and stdio RPC.",
 			score:   0.87,
 			targets: []*searchv1.OpenTarget{

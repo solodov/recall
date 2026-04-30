@@ -201,7 +201,7 @@ func (invoker *recordingInvoker) Invoke(ctx context.Context, method string, args
 	invoker.request = proto.Clone(request).(*searchv1.SearchRequest)
 	_, invoker.sawDeadline = ctx.Deadline()
 	response := reply.(*searchv1.SearchResponse)
-	response.Hits = []*searchv1.SearchHit{{Id: "grpc-hit", Kind: "note", Title: "gRPC hit"}}
+	response.Hits = []*searchv1.SearchHit{{Id: "grpc-hit", Selector: "note", Title: "gRPC hit"}}
 	return nil
 }
 
@@ -258,7 +258,7 @@ func serveSearchProviderHelper(t *testing.T) {
 
 	response := &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{{
 		Id:      "example:" + request.GetQuery(),
-		Kind:    "note",
+		Selector:    "note",
 		Title:   "Result for " + request.GetQuery(),
 		Snippet: proto.String("limit observed"),
 	}}}

@@ -49,8 +49,8 @@ message Opener {
   // Provider IDs this opener applies to.
   repeated string sources = 2;
 
-  // Hit kinds this opener applies to.
-  repeated string kinds = 3;
+  // Hit selectors this opener applies to.
+  repeated string selectors = 3;
 
   // Target types this opener applies to, currently "file" or "uri".
   repeated string target_types = 4;
@@ -62,7 +62,7 @@ message Opener {
   string command = 10;
 
   // Static command arguments with placeholders such as {path}, {uri}, {line},
-  // and {column} expanded by recall-open.
+  // {column}, and {selector} expanded by recall-open.
   repeated string args = 11;
 }
 

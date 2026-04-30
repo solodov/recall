@@ -119,24 +119,24 @@ func TestProviderSearchUsesPathKindHint(t *testing.T) {
 	runner := &recordingRunner{result: RunResult{PathMatches: []PathMatch{{Path: path}}}}
 	provider := New(Options{Roots: []string{root}, Runner: runner})
 
-	response, err := provider.Search(context.Background(), &searchv1.SearchRequest{Query: "runner", KindHints: []string{"path"}})
+	response, err := provider.Search(context.Background(), &searchv1.SearchRequest{Query: "runner", SelectorHints: []string{"path"}})
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
 	if !reflect.DeepEqual(runner.options.Kinds, []SearchKind{SearchKindPath}) {
 		t.Fatalf("kinds = %#v, want path", runner.options.Kinds)
 	}
-	if len(response.GetHits()) != 1 || response.GetHits()[0].GetKind() != KindPathMatch || response.GetHits()[0].GetTitle() != "runner.go" {
+	if len(response.GetHits()) != 1 || response.GetHits()[0].GetSelector() != KindPathMatch || response.GetHits()[0].GetTitle() != "runner.go" {
 		t.Fatalf("hits = %#v, want mapped path match", response.GetHits())
 	}
 }
 
-func TestProviderSearchReturnsNoHitsForUnsupportedKindHints(t *testing.T) {
+func TestProviderSearchReturnsNoHitsForUnsupportedSelectorHints(t *testing.T) {
 	root := t.TempDir()
 	runner := &recordingRunner{}
 	provider := New(Options{Roots: []string{root}, Runner: runner})
 
-	response, err := provider.Search(context.Background(), &searchv1.SearchRequest{Query: "runner", KindHints: []string{"pr"}})
+	response, err := provider.Search(context.Background(), &searchv1.SearchRequest{Query: "runner", SelectorHints: []string{"pr"}})
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestProviderSearchPassesPathFilters(t *testing.T) {
 	runner := &recordingRunner{}
 	provider := New(Options{Roots: []string{root}, Runner: runner})
 
-	_, err := provider.Search(context.Background(), &searchv1.SearchRequest{Query: "foo in:router -in:generated", KindHints: []string{"content"}})
+	_, err := provider.Search(context.Background(), &searchv1.SearchRequest{Query: "foo in:router -in:generated", SelectorHints: []string{"content"}})
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestProviderServesThroughSDKWithTextproto(t *testing.T) {
 	if err := prototext.Unmarshal(stdout.Bytes(), response); err != nil {
 		t.Fatalf("response was not textproto: %v", err)
 	}
-	if len(response.GetHits()) != 1 || response.GetHits()[0].GetKind() != KindCodeMatch {
+	if len(response.GetHits()) != 1 || response.GetHits()[0].GetSelector() != KindCodeMatch {
 		t.Fatalf("response hits = %#v, want code match", response.GetHits())
 	}
 }

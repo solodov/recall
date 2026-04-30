@@ -180,8 +180,8 @@ type Opener struct {
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// Provider IDs this opener applies to.
 	Sources []string `protobuf:"bytes,2,rep,name=sources,proto3" json:"sources,omitempty"`
-	// Hit kinds this opener applies to.
-	Kinds []string `protobuf:"bytes,3,rep,name=kinds,proto3" json:"kinds,omitempty"`
+	// Hit selectors this opener applies to.
+	Selectors []string `protobuf:"bytes,3,rep,name=selectors,proto3" json:"selectors,omitempty"`
 	// Target types this opener applies to, currently "file" or "uri".
 	TargetTypes []string `protobuf:"bytes,4,rep,name=target_types,json=targetTypes,proto3" json:"target_types,omitempty"`
 	// URI schemes this opener applies to for uri targets, such as https.
@@ -189,7 +189,7 @@ type Opener struct {
 	// Command to execute without a shell.
 	Command string `protobuf:"bytes,10,opt,name=command,proto3" json:"command,omitempty"`
 	// Static command arguments with placeholders such as {path}, {uri}, {line},
-	// and {column} expanded by recall-open.
+	// {column}, and {selector} expanded by recall-open.
 	Args          []string `protobuf:"bytes,11,rep,name=args,proto3" json:"args,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -239,9 +239,9 @@ func (x *Opener) GetSources() []string {
 	return nil
 }
 
-func (x *Opener) GetKinds() []string {
+func (x *Opener) GetSelectors() []string {
 	if x != nil {
-		return x.Kinds
+		return x.Selectors
 	}
 	return nil
 }
@@ -491,11 +491,11 @@ const file_proto_recall_config_v1_config_proto_rawDesc = "" +
 	"\n" +
 	"timeout_ms\x18\x15 \x01(\rR\ttimeoutMs\x12#\n" +
 	"\rdefault_limit\x18\x16 \x01(\rR\fdefaultLimitJ\x04\b\n" +
-	"\x10\vJ\x04\b\v\x10\f\"\xba\x01\n" +
+	"\x10\vJ\x04\b\v\x10\f\"\xc2\x01\n" +
 	"\x06Opener\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
-	"\asources\x18\x02 \x03(\tR\asources\x12\x14\n" +
-	"\x05kinds\x18\x03 \x03(\tR\x05kinds\x12!\n" +
+	"\asources\x18\x02 \x03(\tR\asources\x12\x1c\n" +
+	"\tselectors\x18\x03 \x03(\tR\tselectors\x12!\n" +
 	"\ftarget_types\x18\x04 \x03(\tR\vtargetTypes\x12\x1f\n" +
 	"\vuri_schemes\x18\x05 \x03(\tR\n" +
 	"uriSchemes\x12\x18\n" +

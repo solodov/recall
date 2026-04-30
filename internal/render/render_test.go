@@ -253,7 +253,7 @@ func TestWriteJSONPreservesProviderResponsesAndFailures(t *testing.T) {
 func orgEntryResult() *orchestrator.Result {
 	hit := &searchv1.SearchHit{
 		Id:    "org:entry",
-		Kind:  "org_entry",
+		Selector:  "org_entry",
 		Title: "Matched org entry",
 		Targets: []*searchv1.OpenTarget{
 			uriTarget("org-protocol:/roam-node?node=89808715-6315-4484-B726-DFC9F4F2345D"),
@@ -279,7 +279,7 @@ func orgEntryResult() *orchestrator.Result {
 func codeMatchResult() *orchestrator.Result {
 	hit := &searchv1.SearchHit{
 		Id:      "code_match:/workspace/codebase/styleguide/kotlin/formatting.md:51:11",
-		Kind:    "code_match",
+		Selector:    "code_match",
 		Title:   "styleguide/kotlin/formatting.md:51:11",
 		Snippet: proto.String("fun createSampleItem(flavor: Flavor): SampleItem = when(flavor) {"),
 		Targets: []*searchv1.OpenTarget{fileTarget("/workspace/codebase/styleguide/kotlin/formatting.md", 51, 11)},
@@ -304,7 +304,7 @@ func renderFixtureResult() *orchestrator.Result {
 	occurredAt := timestamppb.New(time.Date(2026, 4, 28, 9, 30, 0, 0, time.UTC))
 	rolloutHit := &searchv1.SearchHit{
 		Id:         "rollout",
-		Kind:       "note",
+		Selector:       "note",
 		Title:      "Sample rollout note",
 		Snippet:    proto.String("matched rollout context"),
 		Score:      proto.Float64(1.2),
@@ -322,7 +322,7 @@ func renderFixtureResult() *orchestrator.Result {
 	}
 	looseHit := &searchv1.SearchHit{
 		Id:      "loose",
-		Kind:    "note",
+		Selector:    "note",
 		Title:   "Loose hit",
 		Targets: []*searchv1.OpenTarget{fileTarget("/tmp/loose.md", 0, 0)},
 	}

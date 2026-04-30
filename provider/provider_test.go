@@ -21,7 +21,7 @@ func TestServeSearchWithOptionsDecodesTextprotoAndMirrorsResponse(t *testing.T) 
 			t.Fatalf("query = %q, want sample", request.GetQuery())
 		}
 		_, sawUnlimited = RequestedLimit(request)
-		return &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{{Id: "hit:1", Kind: "note", Title: "Sample"}}}, nil
+		return &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{{Id: "hit:1", Selector: "note", Title: "Sample"}}}, nil
 	}), ServeOptions{
 		Stdin:  bytes.NewReader(request),
 		Stdout: &stdout,
@@ -43,12 +43,12 @@ func TestServeSearchWithOptionsDecodesTextprotoAndMirrorsResponse(t *testing.T) 
 	}
 }
 
-func TestRequestedKindsReturnsNonEmptyHints(t *testing.T) {
-	kinds := RequestedKinds(&searchv1.SearchRequest{KindHints: []string{"pr", "", " code ", "pr"}})
+func TestRequestedSelectorsReturnsNonEmptyHints(t *testing.T) {
+	kinds := RequestedSelectors(&searchv1.SearchRequest{SelectorHints: []string{"pr", "", " code ", "pr"}})
 	if len(kinds) != 2 || !kinds["pr"] || !kinds["code"] {
 		t.Fatalf("kinds = %#v, want pr and code", kinds)
 	}
-	if kinds := RequestedKinds(nil); len(kinds) != 0 {
+	if kinds := RequestedSelectors(nil); len(kinds) != 0 {
 		t.Fatalf("nil request kinds = %#v, want none", kinds)
 	}
 }

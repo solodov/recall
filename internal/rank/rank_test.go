@@ -70,7 +70,7 @@ func hit(providerID string, rank int, id string, nativeScore float64) normalize.
 		ProviderRank: rank,
 		Hit: &searchv1.SearchHit{
 			Id:    id,
-			Kind:  "note",
+			Selector:  "note",
 			Title: id,
 			Score: proto.Float64(nativeScore),
 		},

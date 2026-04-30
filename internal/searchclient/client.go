@@ -20,9 +20,11 @@ import (
 )
 
 const (
-	SearchService    = searchv1.SearchProviderService
-	SearchMethod     = searchv1.SearchProviderSearchMethod
-	SearchFullMethod = searchv1.SearchProviderSearchPath
+	SearchService                = searchv1.SearchProviderService
+	SearchMethod                 = searchv1.SearchProviderSearchMethod
+	SearchFullMethod             = searchv1.SearchProviderSearchPath
+	ListCapabilitiesMethod       = searchv1.SearchProviderListCapabilitiesMethod
+	ListCapabilitiesFullMethod   = searchv1.SearchProviderListCapabilitiesPath
 
 	defaultGRPCDialTimeout = 5 * time.Second
 )
@@ -30,6 +32,7 @@ const (
 // Client is the transport-independent boundary used by recall's orchestrator.
 type Client interface {
 	Search(context.Context, *searchv1.SearchRequest) (*searchv1.SearchResponse, error)
+	ListCapabilities(context.Context, *searchv1.ListCapabilitiesRequest) (*searchv1.ListCapabilitiesResponse, error)
 }
 
 // ProviderClientOptions controls transport details that are not operator-owned
@@ -139,6 +142,20 @@ func (client *StdioClient) Search(ctx context.Context, request *searchv1.SearchR
 	return response, nil
 }
 
+// ListCapabilities invokes SearchProvider.ListCapabilities over a one-shot stdio process.
+func (client *StdioClient) ListCapabilities(ctx context.Context, request *searchv1.ListCapabilitiesRequest) (*searchv1.ListCapabilitiesResponse, error) {
+	if request == nil {
+		request = &searchv1.ListCapabilitiesRequest{}
+	}
+
+	response := &searchv1.ListCapabilitiesResponse{}
+	method := stdiorpc.MethodKey{Service: SearchService, Method: ListCapabilitiesMethod}
+	if err := stdiorpc.CallUnary(ctx, client.transport, client.timeout, method, request, response); err != nil {
+		return nil, fmt.Errorf("search provider %q: stdio ListCapabilities call: %w", client.providerID, err)
+	}
+	return response, nil
+}
+
 type grpcInvoker interface {
 	Invoke(ctx context.Context, method string, args any, reply any, opts ...grpc.CallOption) error
 }
@@ -217,18 +234,34 @@ func (client *GRPCClient) Search(ctx context.Context, request *searchv1.SearchRe
 		return nil, fmt.Errorf("grpc search provider %q: request is nil", client.endpoint)
 	}
 
+	response := &searchv1.SearchResponse{}
+	if err := client.invoke(ctx, SearchFullMethod, request, response); err != nil {
+		return nil, fmt.Errorf("grpc search provider %q: Search call: %w", client.endpoint, err)
+	}
+	return response, nil
+}
+
+// ListCapabilities invokes the fully-qualified SearchProvider.ListCapabilities method.
+func (client *GRPCClient) ListCapabilities(ctx context.Context, request *searchv1.ListCapabilitiesRequest) (*searchv1.ListCapabilitiesResponse, error) {
+	if request == nil {
+		request = &searchv1.ListCapabilitiesRequest{}
+	}
+
+	response := &searchv1.ListCapabilitiesResponse{}
+	if err := client.invoke(ctx, ListCapabilitiesFullMethod, request, response); err != nil {
+		return nil, fmt.Errorf("grpc search provider %q: ListCapabilities call: %w", client.endpoint, err)
+	}
+	return response, nil
+}
+
+func (client *GRPCClient) invoke(ctx context.Context, method string, request any, response any) error {
 	callCtx := ctx
 	var cancel context.CancelFunc
 	if client.timeout > 0 {
 		callCtx, cancel = context.WithTimeout(ctx, client.timeout)
 		defer cancel()
 	}
-
-	response := &searchv1.SearchResponse{}
-	if err := client.invoker.Invoke(callCtx, SearchFullMethod, request, response); err != nil {
-		return nil, fmt.Errorf("grpc search provider %q: Search call: %w", client.endpoint, err)
-	}
-	return response, nil
+	return client.invoker.Invoke(callCtx, method, request, response)
 }
 
 // Close releases the underlying gRPC connection when this client owns one.

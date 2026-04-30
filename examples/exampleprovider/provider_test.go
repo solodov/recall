@@ -91,7 +91,7 @@ func assertExampleSearchResponse(t *testing.T, response *searchv1.SearchResponse
 	if hit.GetId() != "example:rollout-note" {
 		t.Fatalf("hit id = %q, want example:rollout-note", hit.GetId())
 	}
-	if hit.GetKind() != "note" || hit.GetTitle() != "Sample rollout note" || hit.GetSnippet() == "" {
+	if hit.GetSelector() != "note" || hit.GetTitle() != "Sample rollout note" || hit.GetSnippet() == "" {
 		t.Fatalf("hit missing required display fields: %#v", hit)
 	}
 	if hit.Score == nil {

@@ -24,8 +24,8 @@ func TestHitsFromMatchesMapsCodeMatchFields(t *testing.T) {
 		t.Fatalf("hit count = %d, want 1", len(hits))
 	}
 	hit := hits[0]
-	if hit.GetKind() != KindCodeMatch {
-		t.Fatalf("kind = %q, want %q", hit.GetKind(), KindCodeMatch)
+	if hit.GetSelector() != KindCodeMatch {
+		t.Fatalf("kind = %q, want %q", hit.GetSelector(), KindCodeMatch)
 	}
 	if hit.GetId() != "code_match:"+matchPath+":42:14" {
 		t.Fatalf("id = %q", hit.GetId())
@@ -57,7 +57,7 @@ func TestPathHitsFromMatchesMapsFileAndDirectoryFields(t *testing.T) {
 		t.Fatalf("hit count = %d, want 1", len(hits))
 	}
 	hit := hits[0]
-	if hit.GetKind() != KindPathMatch || hit.GetTitle() != "runner.go" {
+	if hit.GetSelector() != KindPathMatch || hit.GetTitle() != "runner.go" {
 		t.Fatalf("hit = %#v, want path match title", hit)
 	}
 	if hit.GetId() != "path_match:"+matchPath {

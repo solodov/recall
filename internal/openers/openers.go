@@ -29,9 +29,9 @@ var placeholderPattern = regexp.MustCompile(`\{([A-Za-z0-9_.-]+)\}`)
 
 // Target is the typed open payload carried by a recall:// URL.
 type Target struct {
-	Source string
-	Kind   string
-	Type   string
+	Source   string
+	Selector string
+	Type     string
 
 	URI       string
 	URIScheme string
@@ -79,9 +79,9 @@ func ParseRecallURL(raw string) (Target, error) {
 		return Target{}, fmt.Errorf("unsupported recall open URL version %q", version)
 	}
 	target := Target{
-		Source: strings.TrimSpace(query.Get("source")),
-		Kind:   strings.TrimSpace(query.Get("kind")),
-		Type:   strings.TrimSpace(query.Get("type")),
+		Source:   strings.TrimSpace(query.Get("source")),
+		Selector: strings.TrimSpace(query.Get("selector")),
+		Type:     strings.TrimSpace(query.Get("type")),
 	}
 	switch target.Type {
 	case TargetTypeFile:
@@ -112,7 +112,7 @@ func ParseRecallURL(raw string) (Target, error) {
 }
 
 // Open chooses the most specific configured opener for targetURL and executes
-// it. Generic openers act as defaults while source/kind-specific openers can
+// it. Generic openers act as defaults while source/selector-specific openers can
 // override them; if no opener matches, recall falls back to the platform open
 // command with the original target.
 func Open(ctx context.Context, cfg *configv1.RecallConfig, targetURL string, options Options) error {
@@ -233,7 +233,7 @@ func matchesOpener(opener *configv1.Opener, target Target) bool {
 		return false
 	}
 	return matchesFilter(opener.GetSources(), target.Source) &&
-		matchesFilter(opener.GetKinds(), target.Kind) &&
+		matchesFilter(opener.GetSelectors(), target.Selector) &&
 		matchesFilter(opener.GetTargetTypes(), target.Type) &&
 		matchesFilter(opener.GetUriSchemes(), target.URIScheme)
 }
@@ -246,7 +246,7 @@ func openerSpecificity(opener *configv1.Opener) int {
 	if len(opener.GetSources()) > 0 {
 		specificity++
 	}
-	if len(opener.GetKinds()) > 0 {
+	if len(opener.GetSelectors()) > 0 {
 		specificity++
 	}
 	if len(opener.GetTargetTypes()) > 0 {
@@ -314,8 +314,8 @@ func placeholderValue(name string, target Target) (string, bool, error) {
 	switch name {
 	case "source":
 		return optionalValue(target.Source)
-	case "kind":
-		return optionalValue(target.Kind)
+	case "selector":
+		return optionalValue(target.Selector)
 	case "type":
 		return target.Type, true, nil
 	case "scheme":

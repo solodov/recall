@@ -85,11 +85,11 @@ func SearchResponse(providerID string, response *searchv1.SearchResponse) (Provi
 	return normalized, nil
 }
 
-// FilterKinds keeps only hits whose provider-native kind appears in kindFilter.
-// An empty filter returns response unchanged because recall treats --kind as a
-// presentation/orchestration control, not part of the provider SearchRequest.
-func FilterKinds(response ProviderResponse, kindFilter map[string]bool) ProviderResponse {
-	if len(kindFilter) == 0 {
+// FilterSelectors keeps only hits matching one of the provider-local selector
+// filters. An empty filter returns response unchanged because a provider-only
+// selector searches every surface from that provider.
+func FilterSelectors(response ProviderResponse, selectors []string) ProviderResponse {
+	if len(selectors) == 0 {
 		return response
 	}
 	filtered := ProviderResponse{
@@ -99,7 +99,7 @@ func FilterKinds(response ProviderResponse, kindFilter map[string]bool) Provider
 	}
 	filtered.Raw = &searchv1.SearchResponse{Warnings: make([]*searchv1.Warning, 0, len(response.Warnings))}
 	for _, hit := range response.Hits {
-		if hit.Hit == nil || !kindFilter[hit.Hit.GetKind()] {
+		if hit.Hit == nil || !matchesSelectorFilter(hit.Hit.GetSelector(), selectors) {
 			continue
 		}
 		filtered.Hits = append(filtered.Hits, hit)
@@ -113,6 +113,20 @@ func FilterKinds(response ProviderResponse, kindFilter map[string]bool) Provider
 	return filtered
 }
 
+func matchesSelectorFilter(selector string, filters []string) bool {
+	selector = strings.TrimSpace(selector)
+	for _, filter := range filters {
+		filter = strings.TrimSpace(filter)
+		if filter == "" {
+			continue
+		}
+		if selector == filter || strings.HasPrefix(selector, filter+":") {
+			return true
+		}
+	}
+	return false
+}
+
 func validateHit(location string, hit *searchv1.SearchHit) []error {
 	if hit == nil {
 		return []error{fmt.Errorf("%s is nil", location)}
@@ -122,8 +136,8 @@ func validateHit(location string, hit *searchv1.SearchHit) []error {
 	if strings.TrimSpace(hit.GetId()) == "" {
 		problems = append(problems, fmt.Errorf("%s.id is required", location))
 	}
-	if strings.TrimSpace(hit.GetKind()) == "" {
-		problems = append(problems, fmt.Errorf("%s.kind is required", location))
+	if strings.TrimSpace(hit.GetSelector()) == "" {
+		problems = append(problems, fmt.Errorf("%s.selector is required", location))
 	}
 	if strings.TrimSpace(hit.GetTitle()) == "" {
 		problems = append(problems, fmt.Errorf("%s.title is required", location))

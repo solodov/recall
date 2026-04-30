@@ -11,10 +11,10 @@ import (
 )
 
 const (
-	// KindCodeMatch is the recall result kind emitted for ripgrep content matches.
-	KindCodeMatch = "code_match"
-	// KindPathMatch is the recall result kind emitted for ripgrep path matches.
-	KindPathMatch = "path_match"
+	// SelectorFileContent is emitted for ripgrep file content matches.
+	SelectorFileContent = "file:content"
+	// SelectorFileName is emitted for ripgrep file name/path matches.
+	SelectorFileName = "file:name"
 )
 
 // HitOptions controls how ripgrep match paths are presented in recall hits.
@@ -63,8 +63,8 @@ func pathHitFromMatch(match PathMatch, options HitOptions) *searchv1.SearchHit {
 	displayPath := displayMatchPath(absolutePath, options.Roots)
 	displayDir := displayMatchPath(filepath.Dir(absolutePath), options.Roots)
 	return &searchv1.SearchHit{
-		Id:    fmt.Sprintf("path_match:%s", absolutePath),
-		Kind:  KindPathMatch,
+		Id:    fmt.Sprintf("file_name:%s", absolutePath),
+		Selector:  SelectorFileName,
 		Title: filepath.Base(displayPath),
 		Targets: []*searchv1.OpenTarget{
 			fileTarget(absolutePath, 0, 0),
@@ -89,8 +89,8 @@ func hitFromMatch(match Match, options HitOptions) *searchv1.SearchHit {
 	}
 
 	return &searchv1.SearchHit{
-		Id:      fmt.Sprintf("code_match:%s:%d:%d", absolutePath, lineNumber, column),
-		Kind:    KindCodeMatch,
+		Id:      fmt.Sprintf("file_content:%s:%d:%d", absolutePath, lineNumber, column),
+		Selector:    SelectorFileContent,
 		Title:   fmt.Sprintf("%s:%d:%d", displayPath, lineNumber, column),
 		Snippet: proto.String(match.Line),
 		Targets: []*searchv1.OpenTarget{

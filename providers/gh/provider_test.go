@@ -9,7 +9,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func TestProviderSearchDoesNothingWithoutKindHints(t *testing.T) {
+func TestProviderSearchDoesNothingWithoutSelectorHints(t *testing.T) {
 	runner := &recordingRunner{}
 	provider, err := New(Options{Runner: runner})
 	if err != nil {
@@ -37,7 +37,7 @@ func TestProviderSearchRunsSupportedHintedDomains(t *testing.T) {
 		t.Fatalf("New returned error: %v", err)
 	}
 
-	response, err := provider.Search(context.Background(), &searchv1.SearchRequest{Query: "parser", Limit: proto.Uint32(5), KindHints: []string{"pr", "code"}})
+	response, err := provider.Search(context.Background(), &searchv1.SearchRequest{Query: "parser", Limit: proto.Uint32(5), SelectorHints: []string{"pr", "code"}})
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestProviderSearchRunsSupportedHintedDomains(t *testing.T) {
 		t.Fatalf("hit count = %d, want 1", len(response.GetHits()))
 	}
 	hit := response.GetHits()[0]
-	if hit.GetKind() != "pr" || hit.GetTitle() != "#7 Improve parser" || hit.GetGroup().GetTitle() != "example/project" {
+	if hit.GetSelector() != "pr" || hit.GetTitle() != "#7 Improve parser" || hit.GetGroup().GetTitle() != "example/project" {
 		t.Fatalf("hit = %#v, want mapped PR", hit)
 	}
 }
@@ -60,7 +60,7 @@ func TestProviderSearchReturnsNoHitsForUnsupportedHints(t *testing.T) {
 		t.Fatalf("New returned error: %v", err)
 	}
 
-	response, err := provider.Search(context.Background(), &searchv1.SearchRequest{Query: "parser", KindHints: []string{"repo"}})
+	response, err := provider.Search(context.Background(), &searchv1.SearchRequest{Query: "parser", SelectorHints: []string{"repo"}})
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestProviderSearchRequiresQueryWhenHintsRequestSearch(t *testing.T) {
 		t.Fatalf("New returned error: %v", err)
 	}
 
-	_, err = provider.Search(context.Background(), &searchv1.SearchRequest{KindHints: []string{"issue"}})
+	_, err = provider.Search(context.Background(), &searchv1.SearchRequest{SelectorHints: []string{"issue"}})
 	if err == nil {
 		t.Fatal("Search succeeded without query")
 	}

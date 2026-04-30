@@ -99,7 +99,7 @@ func codeHit(item Item) *searchv1.SearchHit {
 	}
 	return &searchv1.SearchHit{
 		Id:      stableID(DomainCode, repo, path, item.SHA),
-		Kind:    string(DomainCode),
+		Selector:    string(DomainCode),
 		Title:   path,
 		Snippet: optionalString(firstTextFragment(item.TextMatches)),
 		Targets: []*searchv1.OpenTarget{uriTarget(uri)},
@@ -120,7 +120,7 @@ func commitHit(item Item) *searchv1.SearchHit {
 	}
 	return &searchv1.SearchHit{
 		Id:         stableID(DomainCommit, repo, item.SHA),
-		Kind:       string(DomainCommit),
+		Selector:       string(DomainCommit),
 		Title:      strings.TrimSpace(sha + " " + message),
 		Snippet:    optionalString(item.Commit.Author.Name),
 		Targets:    []*searchv1.OpenTarget{uriTarget(uri)},
@@ -137,7 +137,7 @@ func issueLikeHit(domain Domain, item Item) *searchv1.SearchHit {
 	}
 	return &searchv1.SearchHit{
 		Id:         stableID(domain, repo, fmt.Sprintf("%d", item.Number)),
-		Kind:       string(domain),
+		Selector:       string(domain),
 		Title:      fmt.Sprintf("#%d %s", item.Number, singleLine(item.Title)),
 		Snippet:    optionalString(item.State),
 		Targets:    []*searchv1.OpenTarget{uriTarget(uri)},
@@ -154,7 +154,7 @@ func repoHit(item Item) *searchv1.SearchHit {
 	}
 	return &searchv1.SearchHit{
 		Id:         stableID(DomainRepo, fullName),
-		Kind:       string(DomainRepo),
+		Selector:       string(DomainRepo),
 		Title:      fullName,
 		Snippet:    optionalString(repoSnippet(item)),
 		Targets:    []*searchv1.OpenTarget{uriTarget(uri)},

@@ -74,8 +74,8 @@ func TestSearchAppliesKindAsPostFilterAndProviderHint(t *testing.T) {
 	cfg := &configv1.RecallConfig{Providers: []*configv1.Provider{provider("example", true, 10)}}
 	factory := &recordingFactory{hits: map[string][]*searchv1.SearchHit{
 		"example": {
-			{Id: "example:note", Kind: "note", Title: "Note"},
-			{Id: "example:event", Kind: "event", Title: "Event"},
+			{Id: "example:note", Selector: "note", Title: "Note"},
+			{Id: "example:event", Selector: "event", Title: "Event"},
 		},
 	}}
 
@@ -88,8 +88,8 @@ func TestSearchAppliesKindAsPostFilterAndProviderHint(t *testing.T) {
 	if request.GetQuery() != "sample query" || request.GetLimit() != 10 {
 		t.Fatalf("provider request = %#v, want original query and limit", request)
 	}
-	if !reflect.DeepEqual(request.GetKindHints(), []string{"event"}) {
-		t.Fatalf("kind hints = %#v, want event", request.GetKindHints())
+	if !reflect.DeepEqual(request.GetSelectorHints(), []string{"event"}) {
+		t.Fatalf("kind hints = %#v, want event", request.GetSelectorHints())
 	}
 	if len(result.Responses) != 1 || len(result.Responses[0].Hits) != 1 {
 		t.Fatalf("responses = %#v, want one filtered hit", result.Responses)
@@ -106,9 +106,9 @@ func TestSearchExpandsPathAndContentKindAliases(t *testing.T) {
 	cfg := &configv1.RecallConfig{Providers: []*configv1.Provider{provider("code", true, 10)}}
 	factory := &recordingFactory{hits: map[string][]*searchv1.SearchHit{
 		"code": {
-			{Id: "code:path", Kind: "path_match", Title: "Path"},
-			{Id: "code:content", Kind: "code_match", Title: "Content"},
-			{Id: "code:note", Kind: "note", Title: "Note"},
+			{Id: "code:path", Selector: "path_match", Title: "Path"},
+			{Id: "code:content", Selector: "code_match", Title: "Content"},
+			{Id: "code:note", Selector: "note", Title: "Note"},
 		},
 	}}
 
@@ -123,8 +123,8 @@ func TestSearchExpandsPathAndContentKindAliases(t *testing.T) {
 	if got != "code:path,code:content" {
 		t.Fatalf("filtered ids = %q, want path and content", got)
 	}
-	if !reflect.DeepEqual(factory.requests["code"].GetKindHints(), []string{"path", "path_match", "content", "code_match"}) {
-		t.Fatalf("kind hints = %#v, want expanded path/content hints", factory.requests["code"].GetKindHints())
+	if !reflect.DeepEqual(factory.requests["code"].GetSelectorHints(), []string{"path", "path_match", "content", "code_match"}) {
+		t.Fatalf("kind hints = %#v, want expanded path/content hints", factory.requests["code"].GetSelectorHints())
 	}
 }
 
@@ -209,7 +209,7 @@ func (client fakeClient) Search(_ context.Context, request *searchv1.SearchReque
 	}
 	return &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{{
 		Id:    client.providerID + ":1",
-		Kind:  "note",
+		Selector:  "note",
 		Title: client.providerID + " result",
 	}}}, nil
 }

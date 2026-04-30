@@ -22,19 +22,15 @@ import (
 // operator registry.
 type ClientFactory func(*configv1.Provider) (searchclient.Client, error)
 
-// Options controls recall-level provider routing without changing the provider
-// SearchRequest contract.
+// Options controls recall-level selector routing without changing provider-owned
+// query semantics.
 type Options struct {
-	// Sources restricts query fan-out to specific provider IDs. Empty means all
-	// enabled providers.
-	Sources []string
+	// Selectors restrict query fan-out using source[:object[:match]] selectors.
+	// Empty means all enabled providers with no provider-side selector hints.
+	Selectors []string
 
 	// Limit overrides provider default_limit when non-zero.
 	Limit uint32
-
-	// Kinds post-filters normalized hits by provider kind after providers have
-	// searched their own query semantics. It is never sent in SearchRequest.
-	Kinds []string
 
 	// ClientFactory is injectable so tests and future diagnostics can exercise
 	// orchestration without launching provider processes.
@@ -61,7 +57,8 @@ type ProviderFailure struct {
 }
 
 // Search loads the selected enabled providers from cfg, sends each the same
-// query plus provider-local limit, and returns responses in config order.
+// query plus provider-local selector hints and limit, and returns responses in
+// config order.
 func Search(run runtime.Context, cfg *configv1.RecallConfig, query string, options Options) (*Result, error) {
 	ctx := run.Std()
 	query = strings.TrimSpace(query)
@@ -76,28 +73,24 @@ func Search(run runtime.Context, cfg *configv1.RecallConfig, query string, optio
 		clientFactory = NewDefaultClientFactory()
 	}
 
-	selected, err := selectProviders(cfg.GetProviders(), options.Sources)
-	if err != nil {
-		return nil, err
-	}
-	kinds, err := kindSelection(options.Kinds)
+	selected, err := selectProviders(cfg.GetProviders(), options.Selectors)
 	if err != nil {
 		return nil, err
 	}
 	if len(selected) == 0 {
 		return nil, errors.New("no enabled providers selected")
 	}
-	run.Span().Set("provider_count", len(selected), "source_filter_count", len(options.Sources), "kind_filter_count", len(kinds.Filter))
+	run.Span().Set("provider_count", len(selected), "selector_filter_count", len(options.Selectors))
 	run.Log().InfoContext(ctx, "dispatching recall search", "provider_count", len(selected))
 
 	indexedResults := make(chan indexedProviderResult, len(selected))
 	var wg sync.WaitGroup
-	for index, provider := range selected {
+	for index, selection := range selected {
 		wg.Add(1)
-		go func(index int, provider *configv1.Provider) {
+		go func(index int, selection providerSelection) {
 			defer wg.Done()
-			indexedResults <- searchOneProvider(run, index, provider, query, options.Limit, kinds.Hints, clientFactory)
-		}(index, provider)
+			indexedResults <- searchOneProvider(run, index, selection, query, options.Limit, clientFactory)
+		}(index, selection)
 	}
 	wg.Wait()
 	close(indexedResults)
@@ -116,7 +109,7 @@ func Search(run runtime.Context, cfg *configv1.RecallConfig, query string, optio
 			result.Failures = append(result.Failures, item.failure)
 			continue
 		}
-		result.Responses = append(result.Responses, normalize.FilterKinds(item.response, kinds.Filter))
+		result.Responses = append(result.Responses, normalize.FilterSelectors(item.response, item.selectorFilters))
 	}
 	if len(result.Responses) == 0 && len(result.Failures) > 0 {
 		return result, errors.New("all selected providers failed")
@@ -133,7 +126,8 @@ func NewDefaultClientFactory() ClientFactory {
 	}
 }
 
-func searchOneProvider(run runtime.Context, index int, provider *configv1.Provider, query string, limitOverride uint32, kindHints []string, clientFactory ClientFactory) indexedProviderResult {
+func searchOneProvider(run runtime.Context, index int, selection providerSelection, query string, limitOverride uint32, clientFactory ClientFactory) indexedProviderResult {
+	provider := selection.Provider
 	providerID := provider.GetId()
 	run = run.WithLogMeta("provider_id", providerID)
 	run, span := run.StartOperation("provider.search", "provider_id", providerID)
@@ -153,7 +147,7 @@ func searchOneProvider(run runtime.Context, index int, provider *configv1.Provid
 	if limitOverride != 0 {
 		limit = limitOverride
 	}
-	request := &searchv1.SearchRequest{Query: query, KindHints: append([]string{}, kindHints...)}
+	request := &searchv1.SearchRequest{Query: query, SelectorHints: append([]string{}, selection.SelectorHints...)}
 	if limit > 0 {
 		request.Limit = proto.Uint32(limit)
 	}
@@ -162,7 +156,7 @@ func searchOneProvider(run runtime.Context, index int, provider *configv1.Provid
 		var err error
 		response, err = client.Search(run.Std(), request)
 		return err
-	}, "limit", limit); err != nil {
+	}, "limit", limit, "selector_hint_count", len(selection.SelectorHints)); err != nil {
 		span.RecordError(err)
 		run.Log().WarnContext(run.Std(), "provider search failed", "err", err)
 		return indexedProviderResult{index: index, failure: ProviderFailure{ProviderID: providerID, Err: err}}
@@ -181,11 +175,11 @@ func searchOneProvider(run runtime.Context, index int, provider *configv1.Provid
 	}
 	span.Set("hit_count", len(normalized.Hits), "warning_count", len(normalized.Warnings))
 	run.Log().InfoContext(run.Std(), "provider search completed", "hit_count", len(normalized.Hits), "warning_count", len(normalized.Warnings))
-	return indexedProviderResult{index: index, response: normalized}
+	return indexedProviderResult{index: index, response: normalized, selectorFilters: append([]string{}, selection.SelectorFilters...)}
 }
 
-func selectProviders(providers []*configv1.Provider, sources []string) ([]*configv1.Provider, error) {
-	wanted, err := sourceFilter(sources)
+func selectProviders(providers []*configv1.Provider, selectors []string) ([]providerSelection, error) {
+	wanted, err := selectorFilter(selectors)
 	if err != nil {
 		return nil, err
 	}
@@ -200,102 +194,124 @@ func selectProviders(providers []*configv1.Provider, sources []string) ([]*confi
 	for source := range wanted {
 		provider, exists := configured[source]
 		if !exists {
-			return nil, fmt.Errorf("source %q is not configured", source)
+			return nil, fmt.Errorf("selector source %q is not configured", source)
 		}
 		if !provider.GetEnabled() {
-			return nil, fmt.Errorf("source %q is configured but disabled", source)
+			return nil, fmt.Errorf("selector source %q is configured but disabled", source)
 		}
 	}
 
-	selected := make([]*configv1.Provider, 0, len(providers))
+	selected := make([]providerSelection, 0, len(providers))
 	for _, provider := range providers {
 		if provider == nil || !provider.GetEnabled() {
 			continue
 		}
-		if len(wanted) > 0 && !wanted[provider.GetId()] {
+		filter, restricted := wanted[provider.GetId()]
+		if len(wanted) > 0 && !restricted {
 			continue
 		}
-		selected = append(selected, provider)
+		selected = append(selected, providerSelection{
+			Provider:         provider,
+			SelectorHints:    append([]string{}, filter.hints...),
+			SelectorFilters:  append([]string{}, filter.filters...),
+		})
 	}
 	return selected, nil
 }
 
-func providerWeights(providers []*configv1.Provider) map[string]float64 {
-	weights := make(map[string]float64, len(providers))
-	for _, provider := range providers {
-		if provider == nil {
+func providerWeights(selections []providerSelection) map[string]float64 {
+	weights := make(map[string]float64, len(selections))
+	for _, selection := range selections {
+		if selection.Provider == nil {
 			continue
 		}
-		weights[provider.GetId()] = provider.GetWeight()
+		weights[selection.Provider.GetId()] = selection.Provider.GetWeight()
 	}
 	return weights
 }
 
-func sourceFilter(sources []string) (map[string]bool, error) {
-	return listFilter(sources, "source")
-}
-
-func kindSelection(kinds []string) (kindSelectionResult, error) {
-	selection := kindSelectionResult{Filter: map[string]bool{}}
-	seenRequested := map[string]bool{}
-	seenHints := map[string]bool{}
-	for _, kindList := range kinds {
-		for _, value := range strings.Split(kindList, ",") {
-			value = strings.TrimSpace(value)
-			if value == "" {
+func selectorFilter(selectors []string) (map[string]selectorSelection, error) {
+	wanted := map[string]selectorSelection{}
+	seen := map[string]bool{}
+	for _, selectorList := range selectors {
+		for _, raw := range strings.Split(selectorList, ",") {
+			selector, err := parseSelector(raw)
+			if err != nil {
+				return nil, err
+			}
+			if selector.Source == "" {
 				continue
 			}
-			if seenRequested[value] {
-				return kindSelectionResult{}, fmt.Errorf("kind %q was requested more than once", value)
+			canonical := selector.String()
+			if seen[canonical] {
+				return nil, fmt.Errorf("selector %q was requested more than once", canonical)
 			}
-			seenRequested[value] = true
-			for _, expanded := range kindAliases(value) {
-				selection.Filter[expanded] = true
-				if !seenHints[expanded] {
-					selection.Hints = append(selection.Hints, expanded)
-					seenHints[expanded] = true
-				}
-			}
-		}
-	}
-	return selection, nil
-}
+			seen[canonical] = true
 
-type kindSelectionResult struct {
-	Filter map[string]bool
-	Hints  []string
-}
-
-func kindAliases(kind string) []string {
-	switch kind {
-	case "path":
-		return []string{"path", "path_match"}
-	case "content":
-		return []string{"content", "code_match"}
-	default:
-		return []string{kind}
-	}
-}
-
-func listFilter(values []string, label string) (map[string]bool, error) {
-	wanted := map[string]bool{}
-	for _, valueList := range values {
-		for _, value := range strings.Split(valueList, ",") {
-			value = strings.TrimSpace(value)
-			if value == "" {
-				continue
+			selection := wanted[selector.Source]
+			if selector.Local == "" {
+				selection.all = true
+				selection.hints = nil
+				selection.filters = nil
+			} else if !selection.all {
+				selection.hints = append(selection.hints, selector.Local)
+				selection.filters = append(selection.filters, selector.Local)
 			}
-			if wanted[value] {
-				return nil, fmt.Errorf("%s %q was requested more than once", label, value)
-			}
-			wanted[value] = true
+			wanted[selector.Source] = selection
 		}
 	}
 	return wanted, nil
 }
 
+func parseSelector(value string) (Selector, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return Selector{}, nil
+	}
+	parts := strings.Split(value, ":")
+	if len(parts) > 3 {
+		return Selector{}, fmt.Errorf("selector %q must have form source[:object[:match]]", value)
+	}
+	for _, part := range parts {
+		if strings.TrimSpace(part) == "" {
+			return Selector{}, fmt.Errorf("selector %q must not contain empty segments", value)
+		}
+	}
+	selector := Selector{Source: parts[0]}
+	if len(parts) > 1 {
+		selector.Local = strings.Join(parts[1:], ":")
+	}
+	return selector, nil
+}
+
+// Selector is one concrete value in recall's source:object:match selector taxonomy.
+type Selector struct {
+	Source string
+	Local  string
+}
+
+func (selector Selector) String() string {
+	if selector.Local == "" {
+		return selector.Source
+	}
+	return selector.Source + ":" + selector.Local
+}
+
+type selectorSelection struct {
+	all     bool
+	hints   []string
+	filters []string
+}
+
+type providerSelection struct {
+	Provider        *configv1.Provider
+	SelectorHints   []string
+	SelectorFilters []string
+}
+
 type indexedProviderResult struct {
-	index    int
-	response ProviderResponse
-	failure  ProviderFailure
+	index           int
+	response        ProviderResponse
+	failure         ProviderFailure
+	selectorFilters []string
 }

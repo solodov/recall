@@ -16,7 +16,7 @@ func TestHitsFromItemsMapsGitHubDomains(t *testing.T) {
 		t.Fatalf("hit count = %d, want 1", len(hits))
 	}
 	hit := hits[0]
-	if hit.GetKind() != "code" || hit.GetTitle() != "internal/search.go" || hit.GetSnippet() != "func Search()" || hit.GetGroup().GetTitle() != "example/project" {
+	if hit.GetSelector() != "code" || hit.GetTitle() != "internal/search.go" || hit.GetSnippet() != "func Search()" || hit.GetGroup().GetTitle() != "example/project" {
 		t.Fatalf("code hit = %#v", hit)
 	}
 	if hit.GetTargets()[0].GetUri().GetUri() != "https://github.com/example/project/blob/abcdef/internal/search.go" {
@@ -37,7 +37,7 @@ func TestHitsFromItemsMapsIssueRepositoryURL(t *testing.T) {
 		t.Fatalf("hit count = %d, want 1", len(hits))
 	}
 	hit := hits[0]
-	if hit.GetKind() != "issue" || hit.GetTitle() != "#12 Fix parser" || hit.GetSnippet() != "open" || hit.GetGroup().GetTitle() != "example/project" {
+	if hit.GetSelector() != "issue" || hit.GetTitle() != "#12 Fix parser" || hit.GetSnippet() != "open" || hit.GetGroup().GetTitle() != "example/project" {
 		t.Fatalf("issue hit = %#v", hit)
 	}
 	if hit.GetOccurredAt() == nil {
@@ -52,7 +52,7 @@ func TestHitsFromItemsMapsCommitAndRepo(t *testing.T) {
 		Repository: Repository{FullName: "example/project"},
 		Commit:     Commit{Message: "Fix parser\n\nBody", Author: CommitActor{Name: "Contributor", Date: "2026-04-29T11:00:00Z"}},
 	}})
-	if len(commitHits) != 1 || commitHits[0].GetKind() != "commit" || commitHits[0].GetTitle() != "abcdef1 Fix parser" {
+	if len(commitHits) != 1 || commitHits[0].GetSelector() != "commit" || commitHits[0].GetTitle() != "abcdef1 Fix parser" {
 		t.Fatalf("commit hits = %#v", commitHits)
 	}
 
@@ -64,7 +64,7 @@ func TestHitsFromItemsMapsCommitAndRepo(t *testing.T) {
 		HTMLURL:         "https://github.com/example/project",
 		UpdatedAt:       "2026-04-29T11:00:00Z",
 	}})
-	if len(repoHits) != 1 || repoHits[0].GetKind() != "repo" || repoHits[0].GetTitle() != "example/project" || repoHits[0].GetGroup().GetTitle() != "example" {
+	if len(repoHits) != 1 || repoHits[0].GetSelector() != "repo" || repoHits[0].GetTitle() != "example/project" || repoHits[0].GetGroup().GetTitle() != "example" {
 		t.Fatalf("repo hits = %#v", repoHits)
 	}
 }

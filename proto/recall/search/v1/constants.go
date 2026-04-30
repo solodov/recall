@@ -10,4 +10,10 @@ const (
 
 	// SearchProviderSearchPath is the stdio and gRPC full method path for Search.
 	SearchProviderSearchPath = "/" + SearchProviderService + "/" + SearchProviderSearchMethod
+
+	// SearchProviderListCapabilitiesMethod is the unary capability listing method name.
+	SearchProviderListCapabilitiesMethod = "ListCapabilities"
+
+	// SearchProviderListCapabilitiesPath is the stdio and gRPC full method path for ListCapabilities.
+	SearchProviderListCapabilitiesPath = "/" + SearchProviderService + "/" + SearchProviderListCapabilitiesMethod
 )

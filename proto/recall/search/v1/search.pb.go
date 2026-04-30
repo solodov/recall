@@ -24,7 +24,7 @@ const (
 )
 
 // SearchRequest is the query payload sent by recall. Source routing and
-// presentation controls remain recall-owned; kind hints are advisory so
+// presentation controls remain recall-owned; selector hints are advisory so
 // expensive providers can skip unsupported or unrequested result families while
 // recall still applies authoritative post-filtering.
 type SearchRequest struct {
@@ -34,9 +34,10 @@ type SearchRequest struct {
 	// Optional soft maximum number of hits the provider should return. When
 	// absent, the provider should return every reasonable match.
 	Limit *uint32 `protobuf:"varint,2,opt,name=limit,proto3,oneof" json:"limit,omitempty"`
-	// Optional result kinds the caller is interested in. Providers may use these
-	// as an optimization hint, but must still return valid provider-native kinds.
-	KindHints     []string `protobuf:"bytes,3,rep,name=kind_hints,json=kindHints,proto3" json:"kind_hints,omitempty"`
+	// Optional provider-local selectors the caller is interested in, such as
+	// file:content. Providers may use these as optimization hints, but must still
+	// return valid provider-native selectors on hits.
+	SelectorHints []string `protobuf:"bytes,3,rep,name=selector_hints,json=selectorHints,proto3" json:"selector_hints,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -85,11 +86,159 @@ func (x *SearchRequest) GetLimit() uint32 {
 	return 0
 }
 
-func (x *SearchRequest) GetKindHints() []string {
+func (x *SearchRequest) GetSelectorHints() []string {
 	if x != nil {
-		return x.KindHints
+		return x.SelectorHints
 	}
 	return nil
+}
+
+// ListCapabilitiesRequest is empty because configured provider process args
+// already select the local capability set.
+type ListCapabilitiesRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListCapabilitiesRequest) Reset() {
+	*x = ListCapabilitiesRequest{}
+	mi := &file_proto_recall_search_v1_search_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListCapabilitiesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListCapabilitiesRequest) ProtoMessage() {}
+
+func (x *ListCapabilitiesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_recall_search_v1_search_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListCapabilitiesRequest.ProtoReflect.Descriptor instead.
+func (*ListCapabilitiesRequest) Descriptor() ([]byte, []int) {
+	return file_proto_recall_search_v1_search_proto_rawDescGZIP(), []int{1}
+}
+
+// ListCapabilitiesResponse describes provider-local searchable surfaces.
+type ListCapabilitiesResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Provider-local selectors, such as file:name or page:content.
+	Surfaces      []*SearchSurface `protobuf:"bytes,1,rep,name=surfaces,proto3" json:"surfaces,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListCapabilitiesResponse) Reset() {
+	*x = ListCapabilitiesResponse{}
+	mi := &file_proto_recall_search_v1_search_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListCapabilitiesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListCapabilitiesResponse) ProtoMessage() {}
+
+func (x *ListCapabilitiesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_recall_search_v1_search_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListCapabilitiesResponse.ProtoReflect.Descriptor instead.
+func (*ListCapabilitiesResponse) Descriptor() ([]byte, []int) {
+	return file_proto_recall_search_v1_search_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ListCapabilitiesResponse) GetSurfaces() []*SearchSurface {
+	if x != nil {
+		return x.Surfaces
+	}
+	return nil
+}
+
+// SearchSurface describes one provider-local selector advertised to operators.
+type SearchSurface struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Provider-local selector in recall's object:match taxonomy.
+	Selector string `protobuf:"bytes,1,opt,name=selector,proto3" json:"selector,omitempty"`
+	// Short human-facing label for list output.
+	Title string `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
+	// Concise explanation of what this selector searches.
+	Description   string `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SearchSurface) Reset() {
+	*x = SearchSurface{}
+	mi := &file_proto_recall_search_v1_search_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SearchSurface) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SearchSurface) ProtoMessage() {}
+
+func (x *SearchSurface) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_recall_search_v1_search_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SearchSurface.ProtoReflect.Descriptor instead.
+func (*SearchSurface) Descriptor() ([]byte, []int) {
+	return file_proto_recall_search_v1_search_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *SearchSurface) GetSelector() string {
+	if x != nil {
+		return x.Selector
+	}
+	return ""
+}
+
+func (x *SearchSurface) GetTitle() string {
+	if x != nil {
+		return x.Title
+	}
+	return ""
+}
+
+func (x *SearchSurface) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
 }
 
 // SearchResponse contains provider-local results and non-fatal diagnostics.
@@ -105,7 +254,7 @@ type SearchResponse struct {
 
 func (x *SearchResponse) Reset() {
 	*x = SearchResponse{}
-	mi := &file_proto_recall_search_v1_search_proto_msgTypes[1]
+	mi := &file_proto_recall_search_v1_search_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -117,7 +266,7 @@ func (x *SearchResponse) String() string {
 func (*SearchResponse) ProtoMessage() {}
 
 func (x *SearchResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_recall_search_v1_search_proto_msgTypes[1]
+	mi := &file_proto_recall_search_v1_search_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -130,7 +279,7 @@ func (x *SearchResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SearchResponse.ProtoReflect.Descriptor instead.
 func (*SearchResponse) Descriptor() ([]byte, []int) {
-	return file_proto_recall_search_v1_search_proto_rawDescGZIP(), []int{1}
+	return file_proto_recall_search_v1_search_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *SearchResponse) GetHits() []*SearchHit {
@@ -152,8 +301,8 @@ type SearchHit struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Provider-stable identifier, unique within this provider.
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	// Coarse result type, such as org_entry, note, email, event, or command.
-	Kind string `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`
+	// Provider-local selector in recall's object:match taxonomy.
+	Selector string `protobuf:"bytes,2,opt,name=selector,proto3" json:"selector,omitempty"`
 	// Primary display label for the result.
 	Title string `protobuf:"bytes,3,opt,name=title,proto3" json:"title,omitempty"`
 	// Optional provider-generated context or matched text.
@@ -174,7 +323,7 @@ type SearchHit struct {
 
 func (x *SearchHit) Reset() {
 	*x = SearchHit{}
-	mi := &file_proto_recall_search_v1_search_proto_msgTypes[2]
+	mi := &file_proto_recall_search_v1_search_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -186,7 +335,7 @@ func (x *SearchHit) String() string {
 func (*SearchHit) ProtoMessage() {}
 
 func (x *SearchHit) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_recall_search_v1_search_proto_msgTypes[2]
+	mi := &file_proto_recall_search_v1_search_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -199,7 +348,7 @@ func (x *SearchHit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SearchHit.ProtoReflect.Descriptor instead.
 func (*SearchHit) Descriptor() ([]byte, []int) {
-	return file_proto_recall_search_v1_search_proto_rawDescGZIP(), []int{2}
+	return file_proto_recall_search_v1_search_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *SearchHit) GetId() string {
@@ -209,9 +358,9 @@ func (x *SearchHit) GetId() string {
 	return ""
 }
 
-func (x *SearchHit) GetKind() string {
+func (x *SearchHit) GetSelector() string {
 	if x != nil {
-		return x.Kind
+		return x.Selector
 	}
 	return ""
 }
@@ -272,7 +421,7 @@ type OpenTarget struct {
 
 func (x *OpenTarget) Reset() {
 	*x = OpenTarget{}
-	mi := &file_proto_recall_search_v1_search_proto_msgTypes[3]
+	mi := &file_proto_recall_search_v1_search_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -284,7 +433,7 @@ func (x *OpenTarget) String() string {
 func (*OpenTarget) ProtoMessage() {}
 
 func (x *OpenTarget) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_recall_search_v1_search_proto_msgTypes[3]
+	mi := &file_proto_recall_search_v1_search_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -297,7 +446,7 @@ func (x *OpenTarget) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenTarget.ProtoReflect.Descriptor instead.
 func (*OpenTarget) Descriptor() ([]byte, []int) {
-	return file_proto_recall_search_v1_search_proto_rawDescGZIP(), []int{3}
+	return file_proto_recall_search_v1_search_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *OpenTarget) GetTarget() isOpenTarget_Target {
@@ -352,7 +501,7 @@ type UriTarget struct {
 
 func (x *UriTarget) Reset() {
 	*x = UriTarget{}
-	mi := &file_proto_recall_search_v1_search_proto_msgTypes[4]
+	mi := &file_proto_recall_search_v1_search_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -364,7 +513,7 @@ func (x *UriTarget) String() string {
 func (*UriTarget) ProtoMessage() {}
 
 func (x *UriTarget) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_recall_search_v1_search_proto_msgTypes[4]
+	mi := &file_proto_recall_search_v1_search_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -377,7 +526,7 @@ func (x *UriTarget) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UriTarget.ProtoReflect.Descriptor instead.
 func (*UriTarget) Descriptor() ([]byte, []int) {
-	return file_proto_recall_search_v1_search_proto_rawDescGZIP(), []int{4}
+	return file_proto_recall_search_v1_search_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *UriTarget) GetUri() string {
@@ -402,7 +551,7 @@ type FileTarget struct {
 
 func (x *FileTarget) Reset() {
 	*x = FileTarget{}
-	mi := &file_proto_recall_search_v1_search_proto_msgTypes[5]
+	mi := &file_proto_recall_search_v1_search_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -414,7 +563,7 @@ func (x *FileTarget) String() string {
 func (*FileTarget) ProtoMessage() {}
 
 func (x *FileTarget) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_recall_search_v1_search_proto_msgTypes[5]
+	mi := &file_proto_recall_search_v1_search_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -427,7 +576,7 @@ func (x *FileTarget) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileTarget.ProtoReflect.Descriptor instead.
 func (*FileTarget) Descriptor() ([]byte, []int) {
-	return file_proto_recall_search_v1_search_proto_rawDescGZIP(), []int{5}
+	return file_proto_recall_search_v1_search_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *FileTarget) GetPath() string {
@@ -467,7 +616,7 @@ type SearchGroup struct {
 
 func (x *SearchGroup) Reset() {
 	*x = SearchGroup{}
-	mi := &file_proto_recall_search_v1_search_proto_msgTypes[6]
+	mi := &file_proto_recall_search_v1_search_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -479,7 +628,7 @@ func (x *SearchGroup) String() string {
 func (*SearchGroup) ProtoMessage() {}
 
 func (x *SearchGroup) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_recall_search_v1_search_proto_msgTypes[6]
+	mi := &file_proto_recall_search_v1_search_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -492,7 +641,7 @@ func (x *SearchGroup) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SearchGroup.ProtoReflect.Descriptor instead.
 func (*SearchGroup) Descriptor() ([]byte, []int) {
-	return file_proto_recall_search_v1_search_proto_rawDescGZIP(), []int{6}
+	return file_proto_recall_search_v1_search_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *SearchGroup) GetKey() string {
@@ -529,7 +678,7 @@ type Warning struct {
 
 func (x *Warning) Reset() {
 	*x = Warning{}
-	mi := &file_proto_recall_search_v1_search_proto_msgTypes[7]
+	mi := &file_proto_recall_search_v1_search_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -541,7 +690,7 @@ func (x *Warning) String() string {
 func (*Warning) ProtoMessage() {}
 
 func (x *Warning) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_recall_search_v1_search_proto_msgTypes[7]
+	mi := &file_proto_recall_search_v1_search_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -554,7 +703,7 @@ func (x *Warning) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Warning.ProtoReflect.Descriptor instead.
 func (*Warning) Descriptor() ([]byte, []int) {
-	return file_proto_recall_search_v1_search_proto_rawDescGZIP(), []int{7}
+	return file_proto_recall_search_v1_search_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Warning) GetMessage() string {
@@ -575,19 +724,25 @@ var File_proto_recall_search_v1_search_proto protoreflect.FileDescriptor
 
 const file_proto_recall_search_v1_search_proto_rawDesc = "" +
 	"\n" +
-	"#proto/recall/search/v1/search.proto\x12\x10recall.search.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"i\n" +
+	"#proto/recall/search/v1/search.proto\x12\x10recall.search.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"q\n" +
 	"\rSearchRequest\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12\x19\n" +
-	"\x05limit\x18\x02 \x01(\rH\x00R\x05limit\x88\x01\x01\x12\x1d\n" +
-	"\n" +
-	"kind_hints\x18\x03 \x03(\tR\tkindHintsB\b\n" +
-	"\x06_limit\"x\n" +
+	"\x05limit\x18\x02 \x01(\rH\x00R\x05limit\x88\x01\x01\x12%\n" +
+	"\x0eselector_hints\x18\x03 \x03(\tR\rselectorHintsB\b\n" +
+	"\x06_limit\"\x19\n" +
+	"\x17ListCapabilitiesRequest\"W\n" +
+	"\x18ListCapabilitiesResponse\x12;\n" +
+	"\bsurfaces\x18\x01 \x03(\v2\x1f.recall.search.v1.SearchSurfaceR\bsurfaces\"c\n" +
+	"\rSearchSurface\x12\x1a\n" +
+	"\bselector\x18\x01 \x01(\tR\bselector\x12\x14\n" +
+	"\x05title\x18\x02 \x01(\tR\x05title\x12 \n" +
+	"\vdescription\x18\x03 \x01(\tR\vdescription\"x\n" +
 	"\x0eSearchResponse\x12/\n" +
 	"\x04hits\x18\x01 \x03(\v2\x1b.recall.search.v1.SearchHitR\x04hits\x125\n" +
-	"\bwarnings\x18\x02 \x03(\v2\x19.recall.search.v1.WarningR\bwarnings\"\xbf\x02\n" +
+	"\bwarnings\x18\x02 \x03(\v2\x19.recall.search.v1.WarningR\bwarnings\"\xc7\x02\n" +
 	"\tSearchHit\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
-	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x14\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
+	"\bselector\x18\x02 \x01(\tR\bselector\x12\x14\n" +
 	"\x05title\x18\x03 \x01(\tR\x05title\x12\x1d\n" +
 	"\asnippet\x18\x04 \x01(\tH\x00R\asnippet\x88\x01\x01\x12\x19\n" +
 	"\x05score\x18\x05 \x01(\x01H\x01R\x05score\x88\x01\x01\x126\n" +
@@ -619,9 +774,10 @@ const file_proto_recall_search_v1_search_proto_rawDesc = "" +
 	"\aWarning\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\x12\x17\n" +
 	"\x04code\x18\x02 \x01(\tH\x00R\x04code\x88\x01\x01B\a\n" +
-	"\x05_code2]\n" +
+	"\x05_code2\xc8\x01\n" +
 	"\x0eSearchProvider\x12K\n" +
-	"\x06Search\x12\x1f.recall.search.v1.SearchRequest\x1a .recall.search.v1.SearchResponseB;Z9github.com/solodov/recall/proto/recall/search/v1;searchv1b\x06proto3"
+	"\x06Search\x12\x1f.recall.search.v1.SearchRequest\x1a .recall.search.v1.SearchResponse\x12i\n" +
+	"\x10ListCapabilities\x12).recall.search.v1.ListCapabilitiesRequest\x1a*.recall.search.v1.ListCapabilitiesResponseB;Z9github.com/solodov/recall/proto/recall/search/v1;searchv1b\x06proto3"
 
 var (
 	file_proto_recall_search_v1_search_proto_rawDescOnce sync.Once
@@ -635,34 +791,40 @@ func file_proto_recall_search_v1_search_proto_rawDescGZIP() []byte {
 	return file_proto_recall_search_v1_search_proto_rawDescData
 }
 
-var file_proto_recall_search_v1_search_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_proto_recall_search_v1_search_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_proto_recall_search_v1_search_proto_goTypes = []any{
-	(*SearchRequest)(nil),         // 0: recall.search.v1.SearchRequest
-	(*SearchResponse)(nil),        // 1: recall.search.v1.SearchResponse
-	(*SearchHit)(nil),             // 2: recall.search.v1.SearchHit
-	(*OpenTarget)(nil),            // 3: recall.search.v1.OpenTarget
-	(*UriTarget)(nil),             // 4: recall.search.v1.UriTarget
-	(*FileTarget)(nil),            // 5: recall.search.v1.FileTarget
-	(*SearchGroup)(nil),           // 6: recall.search.v1.SearchGroup
-	(*Warning)(nil),               // 7: recall.search.v1.Warning
-	(*timestamppb.Timestamp)(nil), // 8: google.protobuf.Timestamp
+	(*SearchRequest)(nil),            // 0: recall.search.v1.SearchRequest
+	(*ListCapabilitiesRequest)(nil),  // 1: recall.search.v1.ListCapabilitiesRequest
+	(*ListCapabilitiesResponse)(nil), // 2: recall.search.v1.ListCapabilitiesResponse
+	(*SearchSurface)(nil),            // 3: recall.search.v1.SearchSurface
+	(*SearchResponse)(nil),           // 4: recall.search.v1.SearchResponse
+	(*SearchHit)(nil),                // 5: recall.search.v1.SearchHit
+	(*OpenTarget)(nil),               // 6: recall.search.v1.OpenTarget
+	(*UriTarget)(nil),                // 7: recall.search.v1.UriTarget
+	(*FileTarget)(nil),               // 8: recall.search.v1.FileTarget
+	(*SearchGroup)(nil),              // 9: recall.search.v1.SearchGroup
+	(*Warning)(nil),                  // 10: recall.search.v1.Warning
+	(*timestamppb.Timestamp)(nil),    // 11: google.protobuf.Timestamp
 }
 var file_proto_recall_search_v1_search_proto_depIdxs = []int32{
-	2, // 0: recall.search.v1.SearchResponse.hits:type_name -> recall.search.v1.SearchHit
-	7, // 1: recall.search.v1.SearchResponse.warnings:type_name -> recall.search.v1.Warning
-	3, // 2: recall.search.v1.SearchHit.targets:type_name -> recall.search.v1.OpenTarget
-	6, // 3: recall.search.v1.SearchHit.group:type_name -> recall.search.v1.SearchGroup
-	8, // 4: recall.search.v1.SearchHit.occurred_at:type_name -> google.protobuf.Timestamp
-	4, // 5: recall.search.v1.OpenTarget.uri:type_name -> recall.search.v1.UriTarget
-	5, // 6: recall.search.v1.OpenTarget.file:type_name -> recall.search.v1.FileTarget
-	3, // 7: recall.search.v1.SearchGroup.targets:type_name -> recall.search.v1.OpenTarget
-	0, // 8: recall.search.v1.SearchProvider.Search:input_type -> recall.search.v1.SearchRequest
-	1, // 9: recall.search.v1.SearchProvider.Search:output_type -> recall.search.v1.SearchResponse
-	9, // [9:10] is the sub-list for method output_type
-	8, // [8:9] is the sub-list for method input_type
-	8, // [8:8] is the sub-list for extension type_name
-	8, // [8:8] is the sub-list for extension extendee
-	0, // [0:8] is the sub-list for field type_name
+	3,  // 0: recall.search.v1.ListCapabilitiesResponse.surfaces:type_name -> recall.search.v1.SearchSurface
+	5,  // 1: recall.search.v1.SearchResponse.hits:type_name -> recall.search.v1.SearchHit
+	10, // 2: recall.search.v1.SearchResponse.warnings:type_name -> recall.search.v1.Warning
+	6,  // 3: recall.search.v1.SearchHit.targets:type_name -> recall.search.v1.OpenTarget
+	9,  // 4: recall.search.v1.SearchHit.group:type_name -> recall.search.v1.SearchGroup
+	11, // 5: recall.search.v1.SearchHit.occurred_at:type_name -> google.protobuf.Timestamp
+	7,  // 6: recall.search.v1.OpenTarget.uri:type_name -> recall.search.v1.UriTarget
+	8,  // 7: recall.search.v1.OpenTarget.file:type_name -> recall.search.v1.FileTarget
+	6,  // 8: recall.search.v1.SearchGroup.targets:type_name -> recall.search.v1.OpenTarget
+	0,  // 9: recall.search.v1.SearchProvider.Search:input_type -> recall.search.v1.SearchRequest
+	1,  // 10: recall.search.v1.SearchProvider.ListCapabilities:input_type -> recall.search.v1.ListCapabilitiesRequest
+	4,  // 11: recall.search.v1.SearchProvider.Search:output_type -> recall.search.v1.SearchResponse
+	2,  // 12: recall.search.v1.SearchProvider.ListCapabilities:output_type -> recall.search.v1.ListCapabilitiesResponse
+	11, // [11:13] is the sub-list for method output_type
+	9,  // [9:11] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_proto_recall_search_v1_search_proto_init() }
@@ -671,20 +833,20 @@ func file_proto_recall_search_v1_search_proto_init() {
 		return
 	}
 	file_proto_recall_search_v1_search_proto_msgTypes[0].OneofWrappers = []any{}
-	file_proto_recall_search_v1_search_proto_msgTypes[2].OneofWrappers = []any{}
-	file_proto_recall_search_v1_search_proto_msgTypes[3].OneofWrappers = []any{
+	file_proto_recall_search_v1_search_proto_msgTypes[5].OneofWrappers = []any{}
+	file_proto_recall_search_v1_search_proto_msgTypes[6].OneofWrappers = []any{
 		(*OpenTarget_Uri)(nil),
 		(*OpenTarget_File)(nil),
 	}
-	file_proto_recall_search_v1_search_proto_msgTypes[5].OneofWrappers = []any{}
-	file_proto_recall_search_v1_search_proto_msgTypes[7].OneofWrappers = []any{}
+	file_proto_recall_search_v1_search_proto_msgTypes[8].OneofWrappers = []any{}
+	file_proto_recall_search_v1_search_proto_msgTypes[10].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_recall_search_v1_search_proto_rawDesc), len(file_proto_recall_search_v1_search_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

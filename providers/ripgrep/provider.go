@@ -3,6 +3,7 @@ package ripgrep
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	searchv1 "github.com/solodov/recall/proto/recall/search/v1"
 	recallprovider "github.com/solodov/recall/provider"
@@ -42,6 +43,15 @@ func New(options Options) *Provider {
 	}
 }
 
+// ListCapabilities advertises the ripgrep-backed search surfaces without
+// touching configured roots or invoking ripgrep.
+func (provider *Provider) ListCapabilities(context.Context, *searchv1.ListCapabilitiesRequest) (*searchv1.ListCapabilitiesResponse, error) {
+	return &searchv1.ListCapabilitiesResponse{Surfaces: []*searchv1.SearchSurface{
+		{Selector: SelectorFileName, Title: "File names", Description: "Search root-relative file paths by name"},
+		{Selector: SelectorFileContent, Title: "File contents", Description: "Search matching lines in file contents"},
+	}}, nil
+}
+
 // Search parses the provider-owned query, skips missing configured roots, runs
 // ripgrep against existing roots, and maps matches into recall hits.
 func (provider *Provider) Search(ctx context.Context, request *searchv1.SearchRequest) (*searchv1.SearchResponse, error) {
@@ -52,7 +62,7 @@ func (provider *Provider) Search(ctx context.Context, request *searchv1.SearchRe
 	if err != nil {
 		return nil, err
 	}
-	query.Kinds = restrictSearchKinds(query.Kinds, recallprovider.RequestedKinds(request))
+	query.Kinds = restrictSearchKinds(query.Kinds, recallprovider.RequestedSelectors(request))
 	if len(query.Kinds) == 0 {
 		return &searchv1.SearchResponse{}, nil
 	}
@@ -107,12 +117,15 @@ func restrictSearchKinds(kinds []SearchKind, hints map[string]bool) []SearchKind
 }
 
 func matchesSearchKindHint(kind SearchKind, hints map[string]bool) bool {
-	switch kind {
-	case SearchKindContent:
-		return hints[string(SearchKindContent)] || hints[KindCodeMatch]
-	case SearchKindPath:
-		return hints[string(SearchKindPath)] || hints[KindPathMatch]
-	default:
-		return false
+	selector := string(kind)
+	return hints[selector] || selectorMatchesHint(selector, hints)
+}
+
+func selectorMatchesHint(selector string, hints map[string]bool) bool {
+	for hint := range hints {
+		if selector == hint || strings.HasPrefix(selector, hint+":") {
+			return true
+		}
 	}
+	return false
 }

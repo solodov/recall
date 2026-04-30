@@ -384,7 +384,7 @@ func validateOpener(location string, opener *configv1.Opener, seen map[string]st
 		problems = append(problems, fmt.Errorf("%s.command is required", location))
 	}
 	problems = append(problems, validateFilterList(location+".sources", opener.GetSources(), providerIDPattern)...)
-	problems = append(problems, validateFilterList(location+".kinds", opener.GetKinds(), nil)...)
+	problems = append(problems, validateFilterList(location+".selectors", opener.GetSelectors(), nil)...)
 	problems = append(problems, validateTargetTypes(location+".target_types", opener.GetTargetTypes())...)
 	problems = append(problems, validateFilterList(location+".uri_schemes", opener.GetUriSchemes(), nil)...)
 	return problems

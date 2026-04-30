@@ -125,7 +125,7 @@ func serveSearch(t *testing.T, requestBytes []byte, wantFormat PayloadFormat, ar
 					}
 					return &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{{
 						Id:    "example:" + request.GetQuery(),
-						Kind:  "note",
+						Selector:  "note",
 						Title: "Result",
 					}}}, nil
 				},
@@ -191,7 +191,7 @@ func serveCallUnaryHelper(t *testing.T) {
 
 	responseBytes, err := MarshalPayload(format, &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{{
 		Id:    "example:" + request.GetQuery(),
-		Kind:  "note",
+		Selector:  "note",
 		Title: "Result",
 	}}})
 	if err != nil {

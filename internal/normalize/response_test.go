@@ -16,7 +16,7 @@ func TestSearchResponseAnnotatesValidatedHitsAndWarnings(t *testing.T) {
 		Hits: []*searchv1.SearchHit{
 			{
 				Id:      "hit-1",
-				Kind:    "note",
+				Selector:    "note",
 				Title:   "First hit",
 				Snippet: proto.String("matched context"),
 				Score:   proto.Float64(1.23),
@@ -77,7 +77,7 @@ func TestSearchResponseRejectsMalformedHitsGroupsTargetsAndWarnings(t *testing.T
 		Hits: []*searchv1.SearchHit{
 			{
 				Id:    "",
-				Kind:  "",
+				Selector:  "",
 				Title: "",
 				Targets: []*searchv1.OpenTarget{
 					{Target: &searchv1.OpenTarget_Uri{Uri: &searchv1.UriTarget{Uri: "relative/path"}}},
@@ -122,7 +122,7 @@ func TestSearchResponseRejectsMalformedHitsGroupsTargetsAndWarnings(t *testing.T
 func TestSearchResponseRejectsNonFiniteScore(t *testing.T) {
 	response := &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{{
 		Id:    "hit",
-		Kind:  "note",
+		Selector:  "note",
 		Title: "Hit",
 		Score: proto.Float64(math.NaN()),
 	}}}
@@ -133,9 +133,9 @@ func TestSearchResponseRejectsNonFiniteScore(t *testing.T) {
 	}
 }
 
-func TestFilterKindsKeepsOnlyRequestedKindsAfterProviderSearch(t *testing.T) {
-	noteHit := &searchv1.SearchHit{Id: "note-1", Kind: "note", Title: "Note"}
-	eventHit := &searchv1.SearchHit{Id: "event-1", Kind: "event", Title: "Event"}
+func TestFilterKindsKeepsOnlyRequestedSelectorsAfterProviderSearch(t *testing.T) {
+	noteHit := &searchv1.SearchHit{Id: "note-1", Selector: "note", Title: "Note"}
+	eventHit := &searchv1.SearchHit{Id: "event-1", Selector: "event", Title: "Event"}
 	warning := &searchv1.Warning{Message: "provider warning"}
 	response := ProviderResponse{
 		ProviderID: "example",

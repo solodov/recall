@@ -10,11 +10,11 @@ import (
 type Domain string
 
 const (
-	DomainCode   Domain = "code"
-	DomainCommit Domain = "commit"
-	DomainIssue  Domain = "issue"
-	DomainPR     Domain = "pr"
-	DomainRepo   Domain = "repo"
+	DomainCode   Domain = "file:content"
+	DomainCommit Domain = "commit:content"
+	DomainIssue  Domain = "issue:content"
+	DomainPR     Domain = "pr:content"
+	DomainRepo   Domain = "repo:name"
 )
 
 var defaultDomains = []Domain{DomainCode, DomainCommit, DomainIssue, DomainPR, DomainRepo}
@@ -39,14 +39,14 @@ func normalizeDomains(domains []Domain) ([]Domain, error) {
 	return normalized, nil
 }
 
-// ParseDomain validates a provider-configured GitHub search domain.
+// ParseDomain validates a provider-configured GitHub selector.
 func ParseDomain(value string) (Domain, error) {
 	switch domain := Domain(strings.TrimSpace(value)); domain {
 	case DomainCode, DomainCommit, DomainIssue, DomainPR, DomainRepo:
 		return domain, nil
 	case "":
-		return "", fmt.Errorf("github search domain is required")
+		return "", fmt.Errorf("github selector is required")
 	default:
-		return "", fmt.Errorf("unsupported github search domain %q", value)
+		return "", fmt.Errorf("unsupported github selector %q", value)
 	}
 }

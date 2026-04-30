@@ -31,8 +31,8 @@ type HumanOptions struct {
 }
 
 // WriteHuman renders normalized results with compact terminal-oriented rules.
-// Providers supply data only; recall chooses how to display common result kinds,
-// open targets, snippets, groups, and warnings.
+// Providers supply data only; recall chooses how to display common result
+// selectors, open targets, snippets, groups, and warnings.
 func WriteHuman(writer io.Writer, result *orchestrator.Result, options HumanOptions) error {
 	if result == nil {
 		return nil
@@ -79,8 +79,8 @@ func writeHumanHit(writer io.Writer, normalized normalize.Hit, indent string) {
 	}
 	title := linkedTitle(normalized.ProviderID, hit)
 	fmt.Fprintf(writer, "%s[%s] %s", indent, normalized.ProviderID, title)
-	if kind := strings.TrimSpace(hit.GetKind()); kind != "" {
-		fmt.Fprintf(writer, " (%s)", kind)
+	if selector := strings.TrimSpace(hit.GetSelector()); selector != "" {
+		fmt.Fprintf(writer, " (%s)", selector)
 	}
 	if occurredAt := hit.GetOccurredAt(); occurredAt != nil && occurredAt.IsValid() {
 		fmt.Fprintf(writer, " %s", occurredAt.AsTime().UTC().Format(time.RFC3339))
@@ -89,7 +89,7 @@ func writeHumanHit(writer io.Writer, normalized normalize.Hit, indent string) {
 	if snippet := strings.TrimSpace(hit.GetSnippet()); snippet != "" {
 		fmt.Fprintf(writer, "%s  %s\n", indent, singleLine(snippet))
 	}
-	if actions := secondaryActions(normalized.ProviderID, hit.GetKind(), hit.GetTargets()); actions != "" {
+	if actions := secondaryActions(normalized.ProviderID, hit.GetSelector(), hit.GetTargets()); actions != "" {
 		fmt.Fprintf(writer, "%s  actions: %s\n", indent, actions)
 	}
 }
@@ -104,7 +104,7 @@ func writeCompactCodeHit(writer io.Writer, normalized normalize.Hit, indent stri
 	if snippet := strings.TrimSpace(hit.GetSnippet()); snippet != "" {
 		fmt.Fprintf(writer, "%s  %s\n", indent, singleLine(snippet))
 	}
-	if actions := secondaryActions(normalized.ProviderID, hit.GetKind(), hit.GetTargets()); actions != "" {
+	if actions := secondaryActions(normalized.ProviderID, hit.GetSelector(), hit.GetTargets()); actions != "" {
 		fmt.Fprintf(writer, "%s  actions: %s\n", indent, actions)
 	}
 }
@@ -117,9 +117,9 @@ func writeGroupedHit(writer io.Writer, providerID string, group groupedHits, nor
 	if fileTarget, target, ok := groupedLineTarget(group, hit); ok {
 		label := groupedHitLabel(hit)
 		lineLabel := styleLineNumber(fmt.Sprintf("%5d:", fileTarget.GetLine()))
-		fmt.Fprintf(writer, "  %s %s", lineLabel, terminalLink(label, recallOpenURL(providerID, hit.GetKind(), target)))
+		fmt.Fprintf(writer, "  %s %s", lineLabel, terminalLink(label, recallOpenURL(providerID, hit.GetSelector(), target)))
 		fmt.Fprintln(writer)
-		if actions := groupedSecondaryActions(providerID, hit.GetKind(), group, hit.GetTargets()); actions != "" {
+		if actions := groupedSecondaryActions(providerID, hit.GetSelector(), group, hit.GetTargets()); actions != "" {
 			fmt.Fprintf(writer, "         actions: %s\n", actions)
 		}
 		return
@@ -133,7 +133,7 @@ func writeGroupedHit(writer io.Writer, providerID string, group groupedHits, nor
 	if snippet := groupedSnippet(hit); snippet != "" {
 		fmt.Fprintf(writer, "    %s\n", snippet)
 	}
-	if actions := groupedSecondaryActions(providerID, hit.GetKind(), group, hit.GetTargets()); actions != "" {
+	if actions := groupedSecondaryActions(providerID, hit.GetSelector(), group, hit.GetTargets()); actions != "" {
 		fmt.Fprintf(writer, "    actions: %s\n", actions)
 	}
 }
@@ -141,7 +141,7 @@ func writeGroupedHit(writer io.Writer, providerID string, group groupedHits, nor
 func linkedTitle(providerID string, hit *searchv1.SearchHit) string {
 	title := singleLine(hit.GetTitle())
 	if target := firstTarget(hit.GetTargets()); target != nil {
-		return terminalLink(title, recallOpenURL(providerID, hit.GetKind(), target))
+		return terminalLink(title, recallOpenURL(providerID, hit.GetSelector(), target))
 	}
 	return title
 }
@@ -149,7 +149,7 @@ func linkedTitle(providerID string, hit *searchv1.SearchHit) string {
 func linkedGroupTitle(providerID string, group groupedHits) string {
 	title := styleGroupTitle(singleLine(group.title))
 	if target := firstTarget(group.targets); target != nil {
-		return terminalLink(title, recallOpenURL(providerID, commonGroupKind(group), target))
+		return terminalLink(title, recallOpenURL(providerID, commonGroupSelector(group), target))
 	}
 	return title
 }
@@ -157,27 +157,16 @@ func linkedGroupTitle(providerID string, group groupedHits) string {
 func linkedGroupHeaderLabel(providerID string, group groupedHits, configTargets map[string]*searchv1.OpenTarget) string {
 	label := styleGroupLabel("[" + groupHeaderLabel(providerID, group) + "]")
 	if target := configTargets[providerID]; target != nil {
-		return terminalLink(label, recallOpenURL(providerID, commonGroupKind(group), target))
+		return terminalLink(label, recallOpenURL(providerID, commonGroupSelector(group), target))
 	}
 	return label
 }
 
 func groupHeaderLabel(providerID string, group groupedHits) string {
-	if kind := commonGroupKind(group); kind != "" {
-		return providerID + ":" + displayKind(kind)
+	if selector := commonGroupSelector(group); selector != "" {
+		return providerID + ":" + selector
 	}
 	return providerID
-}
-
-func displayKind(kind string) string {
-	switch kind {
-	case codeMatchKind:
-		return "content"
-	case "path_match":
-		return "path"
-	default:
-		return kind
-	}
 }
 
 func styleGroupLabel(label string) string {
@@ -199,26 +188,26 @@ func styleANSI(text string, style string) string {
 	return style + text + resetStyle
 }
 
-func commonGroupKind(group groupedHits) string {
-	var kind string
+func commonGroupSelector(group groupedHits) string {
+	var selector string
 	for _, normalized := range group.hits {
 		hit := normalized.Hit
 		if hit == nil {
 			continue
 		}
-		hitKind := strings.TrimSpace(hit.GetKind())
-		if hitKind == "" {
+		hitSelector := strings.TrimSpace(hit.GetSelector())
+		if hitSelector == "" {
 			continue
 		}
-		if kind == "" {
-			kind = hitKind
+		if selector == "" {
+			selector = hitSelector
 			continue
 		}
-		if kind != hitKind {
+		if selector != hitSelector {
 			return ""
 		}
 	}
-	return kind
+	return selector
 }
 
 func groupedLineTarget(group groupedHits, hit *searchv1.SearchHit) (*searchv1.FileTarget, *searchv1.OpenTarget, bool) {
@@ -369,7 +358,7 @@ func synthesizeRawResponse(response orchestrator.ProviderResponse) *searchv1.Sea
 }
 
 const (
-	codeMatchKind = "code_match"
+	fileContentSelector = "file:content"
 
 	resetStyle      = "\x1b[0m"
 	groupLabelStyle = "\x1b[2;38;2;150;139;125m"
@@ -425,7 +414,7 @@ func groupHits(hits []normalize.Hit) []groupedHits {
 }
 
 func isCodeMatch(hit *searchv1.SearchHit) bool {
-	return strings.TrimSpace(hit.GetKind()) == codeMatchKind
+	return strings.TrimSpace(hit.GetSelector()) == fileContentSelector
 }
 
 func firstTarget(targets []*searchv1.OpenTarget) *searchv1.OpenTarget {
@@ -438,17 +427,17 @@ func firstTarget(targets []*searchv1.OpenTarget) *searchv1.OpenTarget {
 	return nil
 }
 
-func secondaryActions(providerID string, kind string, targets []*searchv1.OpenTarget) string {
-	return secondaryActionsFiltered(providerID, kind, targets, nil)
+func secondaryActions(providerID string, selector string, targets []*searchv1.OpenTarget) string {
+	return secondaryActionsFiltered(providerID, selector, targets, nil)
 }
 
-func groupedSecondaryActions(providerID string, kind string, group groupedHits, targets []*searchv1.OpenTarget) string {
-	return secondaryActionsFiltered(providerID, kind, targets, func(target *searchv1.OpenTarget) bool {
+func groupedSecondaryActions(providerID string, selector string, group groupedHits, targets []*searchv1.OpenTarget) string {
+	return secondaryActionsFiltered(providerID, selector, targets, func(target *searchv1.OpenTarget) bool {
 		return isRedundantGroupAction(group, target)
 	})
 }
 
-func secondaryActionsFiltered(providerID string, kind string, targets []*searchv1.OpenTarget, skip func(*searchv1.OpenTarget) bool) string {
+func secondaryActionsFiltered(providerID string, selector string, targets []*searchv1.OpenTarget, skip func(*searchv1.OpenTarget) bool) string {
 	if len(targets) <= 1 {
 		return ""
 	}
@@ -458,7 +447,7 @@ func secondaryActionsFiltered(providerID string, kind string, targets []*searchv
 			continue
 		}
 		label := targetLabel(target)
-		actions = append(actions, terminalLink(label, recallOpenURL(providerID, kind, target)))
+		actions = append(actions, terminalLink(label, recallOpenURL(providerID, selector, target)))
 	}
 	return strings.Join(actions, " ")
 }
@@ -494,14 +483,14 @@ func targetLabel(target *searchv1.OpenTarget) string {
 	return "target"
 }
 
-func recallOpenURL(providerID string, kind string, target *searchv1.OpenTarget) string {
+func recallOpenURL(providerID string, selector string, target *searchv1.OpenTarget) string {
 	values := url.Values{}
 	values.Set("v", "1")
 	if providerID = strings.TrimSpace(providerID); providerID != "" {
 		values.Set("source", providerID)
 	}
-	if kind = strings.TrimSpace(kind); kind != "" {
-		values.Set("kind", kind)
+	if selector = strings.TrimSpace(selector); selector != "" {
+		values.Set("selector", selector)
 	}
 	if fileTarget := target.GetFile(); fileTarget != nil {
 		values.Set("type", "file")
