@@ -113,13 +113,13 @@ func TestProviderSearchWithoutLimitReturnsAllRunnerMatches(t *testing.T) {
 	}
 }
 
-func TestProviderSearchReturnsPathMatches(t *testing.T) {
+func TestProviderSearchUsesPathKindHint(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "providers", "ripgrep", "runner.go")
 	runner := &recordingRunner{result: RunResult{PathMatches: []PathMatch{{Path: path}}}}
 	provider := New(Options{Roots: []string{root}, Runner: runner})
 
-	response, err := provider.Search(context.Background(), &searchv1.SearchRequest{Query: "runner -k path"})
+	response, err := provider.Search(context.Background(), &searchv1.SearchRequest{Query: "runner", KindHints: []string{"path"}})
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
@@ -131,18 +131,38 @@ func TestProviderSearchReturnsPathMatches(t *testing.T) {
 	}
 }
 
+func TestProviderSearchReturnsNoHitsForUnsupportedKindHints(t *testing.T) {
+	root := t.TempDir()
+	runner := &recordingRunner{}
+	provider := New(Options{Roots: []string{root}, Runner: runner})
+
+	response, err := provider.Search(context.Background(), &searchv1.SearchRequest{Query: "runner", KindHints: []string{"pr"}})
+	if err != nil {
+		t.Fatalf("Search returned error: %v", err)
+	}
+	if runner.called {
+		t.Fatal("runner was called despite unsupported kind hints")
+	}
+	if len(response.GetHits()) != 0 {
+		t.Fatalf("hits = %#v, want none", response.GetHits())
+	}
+}
+
 func TestProviderSearchPassesPathFilters(t *testing.T) {
 	root := t.TempDir()
 	runner := &recordingRunner{}
 	provider := New(Options{Roots: []string{root}, Runner: runner})
 
-	_, err := provider.Search(context.Background(), &searchv1.SearchRequest{Query: "foo -k content in:router -in:generated"})
+	_, err := provider.Search(context.Background(), &searchv1.SearchRequest{Query: "foo in:router -in:generated", KindHints: []string{"content"}})
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
 	want := []PathFilter{{Include: true, Pattern: "router"}, {Include: false, Pattern: "generated"}}
 	if !reflect.DeepEqual(runner.options.PathFilters, want) {
 		t.Fatalf("path filters = %#v, want %#v", runner.options.PathFilters, want)
+	}
+	if !reflect.DeepEqual(runner.options.Kinds, []SearchKind{SearchKindContent}) {
+		t.Fatalf("kinds = %#v, want content", runner.options.Kinds)
 	}
 }
 

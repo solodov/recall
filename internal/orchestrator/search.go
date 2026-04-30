@@ -80,14 +80,14 @@ func Search(run runtime.Context, cfg *configv1.RecallConfig, query string, optio
 	if err != nil {
 		return nil, err
 	}
-	kindFilter, err := kindFilter(options.Kinds)
+	kinds, err := kindSelection(options.Kinds)
 	if err != nil {
 		return nil, err
 	}
 	if len(selected) == 0 {
 		return nil, errors.New("no enabled providers selected")
 	}
-	run.Span().Set("provider_count", len(selected), "source_filter_count", len(options.Sources), "kind_filter_count", len(options.Kinds))
+	run.Span().Set("provider_count", len(selected), "source_filter_count", len(options.Sources), "kind_filter_count", len(kinds.Filter))
 	run.Log().InfoContext(ctx, "dispatching recall search", "provider_count", len(selected))
 
 	indexedResults := make(chan indexedProviderResult, len(selected))
@@ -96,7 +96,7 @@ func Search(run runtime.Context, cfg *configv1.RecallConfig, query string, optio
 		wg.Add(1)
 		go func(index int, provider *configv1.Provider) {
 			defer wg.Done()
-			indexedResults <- searchOneProvider(run, index, provider, query, options.Limit, clientFactory)
+			indexedResults <- searchOneProvider(run, index, provider, query, options.Limit, kinds.Hints, clientFactory)
 		}(index, provider)
 	}
 	wg.Wait()
@@ -116,7 +116,7 @@ func Search(run runtime.Context, cfg *configv1.RecallConfig, query string, optio
 			result.Failures = append(result.Failures, item.failure)
 			continue
 		}
-		result.Responses = append(result.Responses, normalize.FilterKinds(item.response, kindFilter))
+		result.Responses = append(result.Responses, normalize.FilterKinds(item.response, kinds.Filter))
 	}
 	if len(result.Responses) == 0 && len(result.Failures) > 0 {
 		return result, errors.New("all selected providers failed")
@@ -133,7 +133,7 @@ func NewDefaultClientFactory() ClientFactory {
 	}
 }
 
-func searchOneProvider(run runtime.Context, index int, provider *configv1.Provider, query string, limitOverride uint32, clientFactory ClientFactory) indexedProviderResult {
+func searchOneProvider(run runtime.Context, index int, provider *configv1.Provider, query string, limitOverride uint32, kindHints []string, clientFactory ClientFactory) indexedProviderResult {
 	providerID := provider.GetId()
 	run = run.WithLogMeta("provider_id", providerID)
 	run, span := run.StartOperation("provider.search", "provider_id", providerID)
@@ -153,7 +153,7 @@ func searchOneProvider(run runtime.Context, index int, provider *configv1.Provid
 	if limitOverride != 0 {
 		limit = limitOverride
 	}
-	request := &searchv1.SearchRequest{Query: query}
+	request := &searchv1.SearchRequest{Query: query, KindHints: append([]string{}, kindHints...)}
 	if limit > 0 {
 		request.Limit = proto.Uint32(limit)
 	}
@@ -235,9 +235,10 @@ func sourceFilter(sources []string) (map[string]bool, error) {
 	return listFilter(sources, "source")
 }
 
-func kindFilter(kinds []string) (map[string]bool, error) {
-	wanted := map[string]bool{}
+func kindSelection(kinds []string) (kindSelectionResult, error) {
+	selection := kindSelectionResult{Filter: map[string]bool{}}
 	seenRequested := map[string]bool{}
+	seenHints := map[string]bool{}
 	for _, kindList := range kinds {
 		for _, value := range strings.Split(kindList, ",") {
 			value = strings.TrimSpace(value)
@@ -245,15 +246,24 @@ func kindFilter(kinds []string) (map[string]bool, error) {
 				continue
 			}
 			if seenRequested[value] {
-				return nil, fmt.Errorf("kind %q was requested more than once", value)
+				return kindSelectionResult{}, fmt.Errorf("kind %q was requested more than once", value)
 			}
 			seenRequested[value] = true
 			for _, expanded := range kindAliases(value) {
-				wanted[expanded] = true
+				selection.Filter[expanded] = true
+				if !seenHints[expanded] {
+					selection.Hints = append(selection.Hints, expanded)
+					seenHints[expanded] = true
+				}
 			}
 		}
 	}
-	return wanted, nil
+	return selection, nil
+}
+
+type kindSelectionResult struct {
+	Filter map[string]bool
+	Hints  []string
 }
 
 func kindAliases(kind string) []string {

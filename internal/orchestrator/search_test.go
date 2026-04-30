@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -69,7 +70,7 @@ func TestSearchRoutesRequestedSourcesAndLimitOverride(t *testing.T) {
 	}
 }
 
-func TestSearchAppliesKindAsPostFilterWithoutChangingProviderRequest(t *testing.T) {
+func TestSearchAppliesKindAsPostFilterAndProviderHint(t *testing.T) {
 	cfg := &configv1.RecallConfig{Providers: []*configv1.Provider{provider("example", true, 10)}}
 	factory := &recordingFactory{hits: map[string][]*searchv1.SearchHit{
 		"example": {
@@ -85,7 +86,10 @@ func TestSearchAppliesKindAsPostFilterWithoutChangingProviderRequest(t *testing.
 
 	request := factory.requests["example"]
 	if request.GetQuery() != "sample query" || request.GetLimit() != 10 {
-		t.Fatalf("provider request = %#v, want only original query and limit", request)
+		t.Fatalf("provider request = %#v, want original query and limit", request)
+	}
+	if !reflect.DeepEqual(request.GetKindHints(), []string{"event"}) {
+		t.Fatalf("kind hints = %#v, want event", request.GetKindHints())
 	}
 	if len(result.Responses) != 1 || len(result.Responses[0].Hits) != 1 {
 		t.Fatalf("responses = %#v, want one filtered hit", result.Responses)
@@ -118,6 +122,9 @@ func TestSearchExpandsPathAndContentKindAliases(t *testing.T) {
 	got := result.Responses[0].Hits[0].Hit.GetId() + "," + result.Responses[0].Hits[1].Hit.GetId()
 	if got != "code:path,code:content" {
 		t.Fatalf("filtered ids = %q, want path and content", got)
+	}
+	if !reflect.DeepEqual(factory.requests["code"].GetKindHints(), []string{"path", "path_match", "content", "code_match"}) {
+		t.Fatalf("kind hints = %#v, want expanded path/content hints", factory.requests["code"].GetKindHints())
 	}
 }
 

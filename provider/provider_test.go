@@ -43,6 +43,16 @@ func TestServeSearchWithOptionsDecodesTextprotoAndMirrorsResponse(t *testing.T) 
 	}
 }
 
+func TestRequestedKindsReturnsNonEmptyHints(t *testing.T) {
+	kinds := RequestedKinds(&searchv1.SearchRequest{KindHints: []string{"pr", "", " code ", "pr"}})
+	if len(kinds) != 2 || !kinds["pr"] || !kinds["code"] {
+		t.Fatalf("kinds = %#v, want pr and code", kinds)
+	}
+	if kinds := RequestedKinds(nil); len(kinds) != 0 {
+		t.Fatalf("nil request kinds = %#v, want none", kinds)
+	}
+}
+
 func TestRequestedLimitRequiresPositivePresentLimit(t *testing.T) {
 	for name, request := range map[string]*searchv1.SearchRequest{
 		"nil":      nil,

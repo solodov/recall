@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/solodov/recall/internal/stdiorpc"
 	searchv1 "github.com/solodov/recall/proto/recall/search/v1"
@@ -76,4 +77,21 @@ func RequestedLimit(request *searchv1.SearchRequest) (int, bool) {
 		return 0, false
 	}
 	return int(request.GetLimit()), true
+}
+
+// RequestedKinds returns non-empty advisory kind hints supplied by recall. An
+// empty result means the caller did not request provider-side kind narrowing.
+func RequestedKinds(request *searchv1.SearchRequest) map[string]bool {
+	requested := map[string]bool{}
+	if request == nil {
+		return requested
+	}
+	for _, hint := range request.GetKindHints() {
+		hint = strings.TrimSpace(hint)
+		if hint == "" {
+			continue
+		}
+		requested[hint] = true
+	}
+	return requested
 }

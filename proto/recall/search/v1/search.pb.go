@@ -23,15 +23,20 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// SearchRequest is the query payload sent by recall. Recall-level routing and
-// presentation flags are handled by recall and are not serialized here.
+// SearchRequest is the query payload sent by recall. Source routing and
+// presentation controls remain recall-owned; kind hints are advisory so
+// expensive providers can skip unsupported or unrequested result families while
+// recall still applies authoritative post-filtering.
 type SearchRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Provider-native query text.
 	Query string `protobuf:"bytes,1,opt,name=query,proto3" json:"query,omitempty"`
 	// Optional soft maximum number of hits the provider should return. When
 	// absent, the provider should return every reasonable match.
-	Limit         *uint32 `protobuf:"varint,2,opt,name=limit,proto3,oneof" json:"limit,omitempty"`
+	Limit *uint32 `protobuf:"varint,2,opt,name=limit,proto3,oneof" json:"limit,omitempty"`
+	// Optional result kinds the caller is interested in. Providers may use these
+	// as an optimization hint, but must still return valid provider-native kinds.
+	KindHints     []string `protobuf:"bytes,3,rep,name=kind_hints,json=kindHints,proto3" json:"kind_hints,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -78,6 +83,13 @@ func (x *SearchRequest) GetLimit() uint32 {
 		return *x.Limit
 	}
 	return 0
+}
+
+func (x *SearchRequest) GetKindHints() []string {
+	if x != nil {
+		return x.KindHints
+	}
+	return nil
 }
 
 // SearchResponse contains provider-local results and non-fatal diagnostics.
@@ -563,10 +575,12 @@ var File_proto_recall_search_v1_search_proto protoreflect.FileDescriptor
 
 const file_proto_recall_search_v1_search_proto_rawDesc = "" +
 	"\n" +
-	"#proto/recall/search/v1/search.proto\x12\x10recall.search.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"J\n" +
+	"#proto/recall/search/v1/search.proto\x12\x10recall.search.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"i\n" +
 	"\rSearchRequest\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12\x19\n" +
-	"\x05limit\x18\x02 \x01(\rH\x00R\x05limit\x88\x01\x01B\b\n" +
+	"\x05limit\x18\x02 \x01(\rH\x00R\x05limit\x88\x01\x01\x12\x1d\n" +
+	"\n" +
+	"kind_hints\x18\x03 \x03(\tR\tkindHintsB\b\n" +
 	"\x06_limit\"x\n" +
 	"\x0eSearchResponse\x12/\n" +
 	"\x04hits\x18\x01 \x03(\v2\x1b.recall.search.v1.SearchHitR\x04hits\x125\n" +

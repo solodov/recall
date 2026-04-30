@@ -23,6 +23,7 @@ service SearchProvider {
 message SearchRequest {
   string query = 1;
   optional uint32 limit = 2;
+  repeated string kind_hints = 3;
 }
 ```
 
@@ -30,7 +31,8 @@ The raw query is intentionally provider-owned. Bash history, calendar, Gmail,
 local notes, and other future providers can each map the same query text to the
 search semantics that make sense for that source. Recall-level flags such as
 `--source`, `--kind`, and `--grouped` remain orchestration or presentation
-controls and are not added to `SearchRequest`. When `limit` is absent,
+controls. `kind_hints` is advisory: providers may use it to avoid expensive work,
+but recall still post-filters returned hits by kind. When `limit` is absent,
 providers should return every reasonable match.
 
 Provider responses should return best-first hits with stable IDs, kinds, titles,
@@ -99,7 +101,8 @@ func main() {
 
 The SDK serves one `/recall.search.v1.SearchProvider/Search` stdio call,
 auto-detects binary protobuf or textproto input, mirrors the response format,
-and provides `RequestedLimit` for optional limit handling.
+and provides `RequestedLimit` and `RequestedKinds` helpers for optional caller
+hints.
 
 ## Open targets
 

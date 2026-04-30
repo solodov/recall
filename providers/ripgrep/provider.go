@@ -52,6 +52,10 @@ func (provider *Provider) Search(ctx context.Context, request *searchv1.SearchRe
 	if err != nil {
 		return nil, err
 	}
+	query.Kinds = restrictSearchKinds(query.Kinds, recallprovider.RequestedKinds(request))
+	if len(query.Kinds) == 0 {
+		return &searchv1.SearchResponse{}, nil
+	}
 	resolution, err := provider.resolveRoots()
 	if err != nil {
 		return nil, err
@@ -87,4 +91,28 @@ func (provider *Provider) resolveRoots() (RootResolution, error) {
 		resolver.WorkDir = provider.workDir
 	}
 	return resolver.ResolveRoots(provider.roots)
+}
+
+func restrictSearchKinds(kinds []SearchKind, hints map[string]bool) []SearchKind {
+	if len(hints) == 0 {
+		return kinds
+	}
+	filtered := make([]SearchKind, 0, len(kinds))
+	for _, kind := range kinds {
+		if matchesSearchKindHint(kind, hints) {
+			filtered = append(filtered, kind)
+		}
+	}
+	return filtered
+}
+
+func matchesSearchKindHint(kind SearchKind, hints map[string]bool) bool {
+	switch kind {
+	case SearchKindContent:
+		return hints[string(SearchKindContent)] || hints[KindCodeMatch]
+	case SearchKindPath:
+		return hints[string(SearchKindPath)] || hints[KindPathMatch]
+	default:
+		return false
+	}
 }

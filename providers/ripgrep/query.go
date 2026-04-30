@@ -30,35 +30,16 @@ type Query struct {
 }
 
 // ParseQuery translates the ripgrep provider query language. Free text becomes
-// literal content search text and a path-name substring, -k selects content or
-// path result families, type:foo restricts ripgrep file types, and in:regex /
-// -in:regex filter root-relative file paths.
+// literal content search text and a path-name substring, type:foo restricts
+// ripgrep file types, and in:regex / -in:regex filter root-relative file paths.
+// Recall-level --kind/-k is sent separately as advisory SearchRequest hints.
 func ParseQuery(input string) (Query, error) {
 	var query Query
 	var patternTerms []string
-	var explicitKinds bool
 	tokens := strings.Fields(input)
 	for index := 0; index < len(tokens); index++ {
 		token := tokens[index]
 		switch {
-		case token == "-k":
-			if index+1 >= len(tokens) {
-				return Query{}, errors.New("-k requires content or path")
-			}
-			kind, err := parseSearchKind(tokens[index+1])
-			if err != nil {
-				return Query{}, err
-			}
-			query.Kinds = appendSearchKind(query.Kinds, kind)
-			explicitKinds = true
-			index++
-		case strings.HasPrefix(token, "-k="):
-			kind, err := parseSearchKind(strings.TrimPrefix(token, "-k="))
-			if err != nil {
-				return Query{}, err
-			}
-			query.Kinds = appendSearchKind(query.Kinds, kind)
-			explicitKinds = true
 		case strings.HasPrefix(token, "-in:"):
 			filter, err := parsePathFilter(false, strings.TrimPrefix(token, "-in:"))
 			if err != nil {
@@ -86,9 +67,7 @@ func ParseQuery(input string) (Query, error) {
 		}
 	}
 	query.Pattern = strings.TrimSpace(strings.Join(patternTerms, " "))
-	if !explicitKinds {
-		query.Kinds = defaultSearchKinds(query)
-	}
+	query.Kinds = defaultSearchKinds(query)
 	if err := validateQuery(query); err != nil {
 		return Query{}, err
 	}
@@ -109,26 +88,6 @@ func hasIncludePathFilter(filters []PathFilter) bool {
 		}
 	}
 	return false
-}
-
-func appendSearchKind(kinds []SearchKind, kind SearchKind) []SearchKind {
-	for _, existing := range kinds {
-		if existing == kind {
-			return kinds
-		}
-	}
-	return append(kinds, kind)
-}
-
-func parseSearchKind(value string) (SearchKind, error) {
-	switch kind := SearchKind(strings.TrimSpace(value)); kind {
-	case SearchKindContent, SearchKindPath:
-		return kind, nil
-	case "":
-		return "", errors.New("-k requires content or path")
-	default:
-		return "", fmt.Errorf("unsupported ripgrep search kind %q", value)
-	}
 }
 
 func parsePathFilter(include bool, value string) (PathFilter, error) {

@@ -19,16 +19,10 @@ func TestParseQueryKeepsLiteralSearchTextAndDefaultsToPathAndContent(t *testing.
 	}
 }
 
-func TestParseQueryAcceptsKindSelector(t *testing.T) {
-	query, err := ParseQuery("foo -k path -k content -k path")
-	if err != nil {
-		t.Fatalf("ParseQuery returned error: %v", err)
-	}
-	if !reflect.DeepEqual(query.Kinds, []SearchKind{SearchKindPath, SearchKindContent}) {
-		t.Fatalf("kinds = %#v, want deduplicated path and content", query.Kinds)
-	}
-	if query.Pattern != "foo" {
-		t.Fatalf("pattern = %q, want foo", query.Pattern)
+func TestParseQueryRejectsKindSelectorAsRecallFlag(t *testing.T) {
+	_, err := ParseQuery("foo -k path")
+	if err == nil || !strings.Contains(err.Error(), "-k") {
+		t.Fatalf("ParseQuery error = %v, want unsupported -k operator", err)
 	}
 }
 
@@ -84,20 +78,10 @@ func TestParseQueryRejectsMissingSearchText(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "search text") {
 		t.Fatalf("ParseQuery error = %v, want missing positive selector", err)
 	}
-
-	_, err = ParseQuery("-k path")
-	if err == nil || !strings.Contains(err.Error(), "search text") {
-		t.Fatalf("ParseQuery error = %v, want missing path search text", err)
-	}
 }
 
-func TestParseQueryRejectsUnsupportedKindAndOperator(t *testing.T) {
-	_, err := ParseQuery("foo -k symbol")
-	if err == nil || !strings.Contains(err.Error(), "symbol") {
-		t.Fatalf("unsupported kind error = %v", err)
-	}
-
-	_, err = ParseQuery("foo -kind:go")
+func TestParseQueryRejectsUnsupportedOperator(t *testing.T) {
+	_, err := ParseQuery("foo -kind:go")
 	if err == nil || !strings.Contains(err.Error(), "-kind:go") {
 		t.Fatalf("unsupported operator error = %v", err)
 	}

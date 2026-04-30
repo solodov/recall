@@ -16,6 +16,7 @@ build: generate-proto
     go build -o dist/recall-open ./cmd/recall-open
     go build -o dist/recall-example-provider ./cmd/recall-example-provider
     go build -o dist/recall-ripgrep-provider ./cmd/recall-ripgrep-provider
+    go build -o dist/recall-gh-provider ./cmd/recall-gh-provider
 
 [script]
 lint *paths:
@@ -106,3 +107,4 @@ install: build
     cp dist/recall-open $(go env GOPATH)/bin
     cp dist/recall-example-provider $(go env GOPATH)/bin
     cp dist/recall-ripgrep-provider $(go env GOPATH)/bin
+    cp dist/recall-gh-provider $(go env GOPATH)/bin

@@ -13,8 +13,10 @@ service SearchProvider {
   rpc Search(SearchRequest) returns (SearchResponse);
 }
 
-// SearchRequest is the query payload sent by recall. Recall-level routing and
-// presentation flags are handled by recall and are not serialized here.
+// SearchRequest is the query payload sent by recall. Source routing and
+// presentation controls remain recall-owned; kind hints are advisory so
+// expensive providers can skip unsupported or unrequested result families while
+// recall still applies authoritative post-filtering.
 message SearchRequest {
   // Provider-native query text.
   string query = 1;
@@ -22,6 +24,10 @@ message SearchRequest {
   // Optional soft maximum number of hits the provider should return. When
   // absent, the provider should return every reasonable match.
   optional uint32 limit = 2;
+
+  // Optional result kinds the caller is interested in. Providers may use these
+  // as an optimization hint, but must still return valid provider-native kinds.
+  repeated string kind_hints = 3;
 }
 
 // SearchResponse contains provider-local results and non-fatal diagnostics.

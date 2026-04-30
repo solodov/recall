@@ -12,10 +12,11 @@ service SearchProvider {
 message SearchRequest {
   string query = 1;
   optional uint32 limit = 2;
+  repeated string kind_hints = 3;
 }
 ```
 
-Recall-level flags such as `--source`, `--kind`, and output format are orchestration or rendering controls. Providers receive only `query` and optional `limit`; when `limit` is absent, providers should return every reasonable match.
+Recall-level flags such as `--source`, `--kind`, and output format are orchestration or rendering controls. Providers receive `query`, optional `limit`, and advisory `kind_hints`; recall still applies authoritative kind filtering after provider responses.
 
 ## Stdio provider protocol
 
@@ -80,7 +81,8 @@ The SDK handles the stdio RPC path, stdin format auto-detection, mirrored stdout
 ## First-party providers
 
 - `recall-example-provider` demonstrates the provider contract with a deterministic fixture.
-- `recall-ripgrep-provider` searches code with ripgrep; see `docs/recall-ripgrep-provider.md`.
+- `recall-ripgrep-provider` searches local code with ripgrep; see `docs/recall-ripgrep-provider.md`.
+- `recall-gh-provider` searches GitHub through `gh`; see `docs/recall-gh-provider.md`.
 
 ## Run the example
 
@@ -102,7 +104,7 @@ Build the binaries first:
 just build
 ```
 
-This produces `dist/recall`, `dist/recall-open`, `dist/recall-example-provider`, and `dist/recall-ripgrep-provider`.
+This produces `dist/recall`, `dist/recall-open`, `dist/recall-example-provider`, `dist/recall-ripgrep-provider`, and `dist/recall-gh-provider`.
 
 Then call the example provider directly with a textproto `SearchRequest`:
 
