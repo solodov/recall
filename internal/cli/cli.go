@@ -71,7 +71,7 @@ func (app App) Run(ctx context.Context, args []string) error {
 
 // expandListSourcesAlias rewrites recall's two-letter -ls alias before Cobra
 // parses flags. pflag shorthands are single characters, so this keeps -s
-// available for --source while still offering a compact list-sources spelling.
+// available for --selector while still offering a compact list-sources spelling.
 func expandListSourcesAlias(args []string) []string {
 	normalized := append([]string{}, args...)
 	for i := 0; i < len(normalized); i++ {
@@ -98,7 +98,7 @@ func flagConsumesNextValue(arg string) bool {
 		return false
 	}
 	switch arg {
-	case "--config", "--log-path", "--perf-log-path", "--log-level", "--source", "--kind", "--limit", "--format", "-s", "-k", "-l", "-f":
+	case "--config", "--log-path", "--perf-log-path", "--log-level", "--selector", "--limit", "--format", "-s", "-l", "-f":
 		return true
 	default:
 		return false
@@ -111,9 +111,8 @@ type commandOptions struct {
 	logPath     string
 	perfLogPath string
 	logLevel    string
-	sources     stringListFlag
+	selectors   stringListFlag
 	limit       uint32
-	kinds       stringListFlag
 	grouped     bool
 	format      string
 	listSources bool
@@ -127,14 +126,13 @@ func (app App) newRootCommand(stdout io.Writer, stderr io.Writer, options *comma
 
 The root command is query-first: all positional arguments are joined into the provider query. Put recall flags before the query when the query contains provider-owned operators like -in:test. Use -ls/--list-sources to see which corpora are configured.
 
-Source vs kind:
-  --source/-s selects which providers or corpora to query, such as code.
-  --kind/-k filters result types returned by providers, such as path or content.`),
+Selectors:
+  --selector/-s selects providers or provider surfaces, such as code or code:file:content.`),
 		Example: strings.TrimSpace(`recall -ls
 recall sample
 recall -s code "foo -in:test"
-recall -s code -k path router
-recall --kind content -l 20 router
+recall -s code:file:name router
+recall -s code:file:content -l 20 router
 recall -f json sample
 recall --config ./examples/config.txtpb sample`),
 		Args: func(cmd *cobra.Command, args []string) error {
@@ -164,8 +162,7 @@ recall --config ./examples/config.txtpb sample`),
 	cmd.PersistentFlags().StringVar(&options.logPath, "log-path", "", "main rotated log path")
 	cmd.PersistentFlags().StringVar(&options.perfLogPath, "perf-log-path", "", "performance trace log path")
 	cmd.PersistentFlags().StringVar(&options.logLevel, "log-level", "off", "also print logs to stderr at level: debug|info|warn|error|off")
-	cmd.Flags().VarP(&options.sources, "source", "s", "comma-separated provider IDs/corpora to query")
-	cmd.Flags().VarP(&options.kinds, "kind", "k", "comma-separated result kinds to keep after provider search, e.g. path, content, note, or code_match")
+	cmd.Flags().VarP(&options.selectors, "selector", "s", "comma-separated selectors to query, e.g. code, code:file:name, or code:file:content")
 	cmd.Flags().Uint32VarP(&options.limit, "limit", "l", 0, "override per-provider result limit")
 	cmd.Flags().BoolVarP(&options.grouped, "grouped", "g", true, "group human output by source and provider group (default; use --grouped=false for flat output)")
 	cmd.Flags().StringVarP(&options.format, "format", "f", string(outputFormatHuman), "output format: human or json")
@@ -185,16 +182,15 @@ Common commands:
   recall -ls                               list configured corpora/providers
   recall sample                            search all enabled providers
   recall -s code "foo -in:test"             search only the code corpus
-  recall -s code -k path foo                show matching file paths in code
-  recall -k content -l 20 foo               show up to 20 content matches per provider
+  recall -s code:file:name foo              show matching file paths in code
+  recall -s code:file:content -l 20 foo     show up to 20 content matches per provider
   recall -f json sample                    emit machine-readable results
 
-Source vs kind:
-  --source/-s selects providers/corpora before search, such as code.
-  --kind/-k filters provider result types after search, such as path, content, or note.
+Selectors:
+  --selector/-s selects providers/corpora before search, such as code, or provider surfaces such as code:file:content.
 
 Tips:
-  Use provider IDs from "recall -ls" with --source/-s.
+  Use provider IDs from "recall -ls" with --selector/-s.
   Put recall flags before the query; provider operators like -in:test belong in the query.
   Run "recall --help" for all flags and examples.`))
 }
@@ -244,9 +240,8 @@ func (app App) runSearch(ctx context.Context, stdout io.Writer, stderr io.Writer
 	searchErr := span.Measure("search", func() error {
 		var err error
 		result, err = search(run, cfg, options.query, orchestrator.Options{
-			Sources: options.sources,
-			Limit:   options.limit,
-			Kinds:   options.kinds,
+			Selectors: options.selectors,
+			Limit:     options.limit,
 		})
 		return err
 	})
