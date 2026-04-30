@@ -6,8 +6,81 @@ option go_package = "github.com/solodov/recall/proto/recall/search/v1;searchv1";
 
 import "google/protobuf/timestamp.proto";
 
+// Selector taxonomy
+//
+// recall names searchable surfaces with selectors. A selector is a stable,
+// human-readable taxonomy value, not a provider implementation detail or a UI
+// label. Selectors let recall route searches, blend and filter hits, list what
+// a provider can search, and choose local openers without provider-specific
+// rendering code.
+//
+// There are two forms:
+//
+//   - Full recall selector: source:object:match
+//   - Provider-local selector: object:match
+//
+// The source segment is recall-owned. It is the provider id from the operator's
+// recall config, such as "backend", "gh", or "notion". Providers must not put
+// that source segment in protocol fields; recall adds it when presenting or
+// routing selectors. For example, a configured provider id "backend" may expose
+// provider-local selector "file:content", which recall presents as full selector
+// "backend:file:content".
+//
+// The object segment names the kind of source-native thing being searched or
+// returned. It should be a durable product/domain noun, not a result-rendering
+// shape. Prefer common nouns when they fit:
+//
+//   - file: local or repository file
+//   - page: document/wiki/page-like object
+//   - entry: outline, journal, or knowledge-base entry
+//   - message: chat/email/message-like object
+//   - event: calendar or timeline event
+//   - task: task/ticket/work item
+//   - issue: issue tracker issue
+//   - pr: pull/merge request
+//   - commit: version-control commit
+//   - repo: source repository
+//   - symbol: code symbol
+//
+// The match segment names the searchable aspect that produced the hit. It should
+// describe why this surface is searched differently, not every possible query
+// facet. Prefer these common match names:
+//
+//   - content: body text, file contents, comments, descriptions, or other main
+//     full-text content
+//   - name: primary name/title/path/subject used to identify the object
+//   - metadata: structured fields that are not the primary name or body
+//   - reference: links, citations, mentions, imports, or backlinks
+//
+// Keep selectors coarse and stable. Query filters such as repository, author,
+// status, path glob, label, language, date range, or MIME type normally belong
+// in the provider's query syntax or config, not in selectors. Do not encode
+// dynamic values, tenant names, repo names, local paths, transport names, output
+// formats, or implementation-specific result classes in selectors.
+//
+// SearchSurface.selector and SearchHit.selector must be full provider-local
+// selectors in object:match form. SearchRequest.selector_hints may contain full
+// provider-local selectors or object prefixes to let recall ask for a narrower
+// subset of a provider's surfaces. Hints are advisory optimization inputs:
+// providers may use them to avoid expensive work, while recall still applies
+// authoritative filtering after results are returned.
+//
+// Examples:
+//
+//   - file:name searches file paths or names
+//   - file:content searches file contents
+//   - page:name searches page titles
+//   - page:content searches page body text
+//   - entry:content searches outline or note entry text
+//   - message:content searches message text
+//   - event:content searches event summaries and notes
+//   - issue:content searches issue titles, bodies, and comments
+//   - pr:content searches pull request titles, bodies, and comments
+//   - repo:name searches repository names and descriptions
+//   - symbol:name searches code symbol names
+//
 // SearchProvider is the recall-compatible provider service. Transports bind
-// this unary RPC to stdio, gRPC, or future service transports.
+// these unary RPCs to stdio, gRPC, or future service transports.
 service SearchProvider {
   // Search returns provider-local results ordered best-first for the query.
   rpc Search(SearchRequest) returns (SearchResponse);
@@ -18,9 +91,9 @@ service SearchProvider {
 }
 
 // SearchRequest is the query payload sent by recall. Source routing and
-// presentation controls remain recall-owned; selector hints are advisory so
-// expensive providers can skip unsupported or unrequested result families while
-// recall still applies authoritative post-filtering.
+// presentation controls remain recall-owned; selector hints are provider-local
+// advisory inputs so expensive providers can skip unsupported or unrequested
+// surfaces while recall still applies authoritative post-filtering.
 message SearchRequest {
   // Provider-native query text.
   string query = 1;
@@ -29,9 +102,10 @@ message SearchRequest {
   // absent, the provider should return every reasonable match.
   optional uint32 limit = 2;
 
-  // Optional provider-local selectors the caller is interested in, such as
-  // file:content. Providers may use these as optimization hints, but must still
-  // return valid provider-native selectors on hits.
+  // Optional provider-local selectors or selector prefixes the caller is
+  // interested in, such as file or file:content. Providers may use these as
+  // optimization hints, but every returned hit must still set a full
+  // provider-local selector in object:match form.
   repeated string selector_hints = 3;
 }
 
@@ -45,9 +119,11 @@ message ListCapabilitiesResponse {
   repeated SearchSurface surfaces = 1;
 }
 
-// SearchSurface describes one provider-local selector advertised to operators.
+// SearchSurface describes one provider-local searchable surface advertised to
+// operators. A surface is a capability, not a result; it tells recall which
+// selectors may be useful before a query is run.
 message SearchSurface {
-  // Provider-local selector in recall's object:match taxonomy.
+  // Full provider-local selector in recall's object:match taxonomy.
   string selector = 1;
 
   // Short human-facing label for list output.
@@ -71,7 +147,9 @@ message SearchHit {
   // Provider-stable identifier, unique within this provider.
   string id = 1;
 
-  // Provider-local selector in recall's object:match taxonomy.
+  // Full provider-local selector in recall's object:match taxonomy. This should
+  // match one of the provider's advertised SearchSurface selectors when the
+  // provider can list capabilities.
   string selector = 2;
 
   // Primary display label for the result.

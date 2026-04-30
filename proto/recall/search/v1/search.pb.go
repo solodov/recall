@@ -24,9 +24,9 @@ const (
 )
 
 // SearchRequest is the query payload sent by recall. Source routing and
-// presentation controls remain recall-owned; selector hints are advisory so
-// expensive providers can skip unsupported or unrequested result families while
-// recall still applies authoritative post-filtering.
+// presentation controls remain recall-owned; selector hints are provider-local
+// advisory inputs so expensive providers can skip unsupported or unrequested
+// surfaces while recall still applies authoritative post-filtering.
 type SearchRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Provider-native query text.
@@ -34,9 +34,10 @@ type SearchRequest struct {
 	// Optional soft maximum number of hits the provider should return. When
 	// absent, the provider should return every reasonable match.
 	Limit *uint32 `protobuf:"varint,2,opt,name=limit,proto3,oneof" json:"limit,omitempty"`
-	// Optional provider-local selectors the caller is interested in, such as
-	// file:content. Providers may use these as optimization hints, but must still
-	// return valid provider-native selectors on hits.
+	// Optional provider-local selectors or selector prefixes the caller is
+	// interested in, such as file or file:content. Providers may use these as
+	// optimization hints, but every returned hit must still set a full
+	// provider-local selector in object:match form.
 	SelectorHints []string `protobuf:"bytes,3,rep,name=selector_hints,json=selectorHints,proto3" json:"selector_hints,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -177,10 +178,12 @@ func (x *ListCapabilitiesResponse) GetSurfaces() []*SearchSurface {
 	return nil
 }
 
-// SearchSurface describes one provider-local selector advertised to operators.
+// SearchSurface describes one provider-local searchable surface advertised to
+// operators. A surface is a capability, not a result; it tells recall which
+// selectors may be useful before a query is run.
 type SearchSurface struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Provider-local selector in recall's object:match taxonomy.
+	// Full provider-local selector in recall's object:match taxonomy.
 	Selector string `protobuf:"bytes,1,opt,name=selector,proto3" json:"selector,omitempty"`
 	// Short human-facing label for list output.
 	Title string `protobuf:"bytes,2,opt,name=title,proto3" json:"title,omitempty"`
@@ -301,7 +304,9 @@ type SearchHit struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Provider-stable identifier, unique within this provider.
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	// Provider-local selector in recall's object:match taxonomy.
+	// Full provider-local selector in recall's object:match taxonomy. This should
+	// match one of the provider's advertised SearchSurface selectors when the
+	// provider can list capabilities.
 	Selector string `protobuf:"bytes,2,opt,name=selector,proto3" json:"selector,omitempty"`
 	// Primary display label for the result.
 	Title string `protobuf:"bytes,3,opt,name=title,proto3" json:"title,omitempty"`
