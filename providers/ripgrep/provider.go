@@ -62,8 +62,8 @@ func (provider *Provider) Search(ctx context.Context, request *searchv1.SearchRe
 	if err != nil {
 		return nil, err
 	}
-	query.Kinds = restrictSearchKinds(query.Kinds, recallprovider.RequestedSelectors(request))
-	if len(query.Kinds) == 0 {
+	query.Selectors = restrictSearchSelectors(query.Selectors, recallprovider.RequestedSelectors(request))
+	if len(query.Selectors) == 0 {
 		return &searchv1.SearchResponse{}, nil
 	}
 	resolution, err := provider.resolveRoots()
@@ -82,7 +82,7 @@ func (provider *Provider) Search(ctx context.Context, request *searchv1.SearchRe
 	result, err := runner.Run(ctx, RunOptions{
 		Pattern:     query.Pattern,
 		Roots:       resolution.Roots,
-		Kinds:       query.Kinds,
+		Selectors:   query.Selectors,
 		FileTypes:   query.FileTypes,
 		PathFilters: query.PathFilters,
 		Limit:       limit,
@@ -103,22 +103,22 @@ func (provider *Provider) resolveRoots() (RootResolution, error) {
 	return resolver.ResolveRoots(provider.roots)
 }
 
-func restrictSearchKinds(kinds []SearchKind, hints map[string]bool) []SearchKind {
+func restrictSearchSelectors(selectors []SearchSelector, hints map[string]bool) []SearchSelector {
 	if len(hints) == 0 {
-		return kinds
+		return selectors
 	}
-	filtered := make([]SearchKind, 0, len(kinds))
-	for _, kind := range kinds {
-		if matchesSearchKindHint(kind, hints) {
-			filtered = append(filtered, kind)
+	filtered := make([]SearchSelector, 0, len(selectors))
+	for _, selector := range selectors {
+		if matchesSearchSelectorHint(selector, hints) {
+			filtered = append(filtered, selector)
 		}
 	}
 	return filtered
 }
 
-func matchesSearchKindHint(kind SearchKind, hints map[string]bool) bool {
-	selector := string(kind)
-	return hints[selector] || selectorMatchesHint(selector, hints)
+func matchesSearchSelectorHint(selector SearchSelector, hints map[string]bool) bool {
+	value := string(selector)
+	return hints[value] || selectorMatchesHint(value, hints)
 }
 
 func selectorMatchesHint(selector string, hints map[string]bool) bool {

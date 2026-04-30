@@ -14,12 +14,12 @@ func TestParseQueryKeepsLiteralSearchTextAndDefaultsToPathAndContent(t *testing.
 	if query.Pattern != "foo bar" {
 		t.Fatalf("pattern = %q, want literal text", query.Pattern)
 	}
-	if !reflect.DeepEqual(query.Kinds, []SearchKind{SearchKindPath, SearchKindContent}) {
-		t.Fatalf("kinds = %#v, want path and content", query.Kinds)
+	if !reflect.DeepEqual(query.Selectors, []SearchSelector{SearchSelectorFileName, SearchSelectorFileContent}) {
+		t.Fatalf("selectors = %#v, want file name and content", query.Selectors)
 	}
 }
 
-func TestParseQueryRejectsKindSelectorAsRecallFlag(t *testing.T) {
+func TestParseQueryRejectsSelectorAsRecallFlag(t *testing.T) {
 	_, err := ParseQuery("foo -k path")
 	if err == nil || !strings.Contains(err.Error(), "-k") {
 		t.Fatalf("ParseQuery error = %v, want unsupported -k operator", err)
@@ -68,7 +68,7 @@ func TestParseQueryAllowsPathOnlyFilterWithoutSearchText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseQuery returned error: %v", err)
 	}
-	if query.Pattern != "" || !reflect.DeepEqual(query.Kinds, []SearchKind{SearchKindPath}) {
+	if query.Pattern != "" || !reflect.DeepEqual(query.Selectors, []SearchSelector{SearchSelectorFileName}) {
 		t.Fatalf("query = %#v, want path-only filter query", query)
 	}
 }
@@ -81,8 +81,8 @@ func TestParseQueryRejectsMissingSearchText(t *testing.T) {
 }
 
 func TestParseQueryRejectsUnsupportedOperator(t *testing.T) {
-	_, err := ParseQuery("foo -kind:go")
-	if err == nil || !strings.Contains(err.Error(), "-kind:go") {
+	_, err := ParseQuery("foo -selector:file:content")
+	if err == nil || !strings.Contains(err.Error(), "-selector:file:content") {
 		t.Fatalf("unsupported operator error = %v", err)
 	}
 }

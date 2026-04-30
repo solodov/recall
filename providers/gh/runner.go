@@ -23,12 +23,12 @@ type Runner struct {
 }
 
 // Search calls GitHub's REST search endpoints via gh api and parses one page of results.
-func (runner Runner) Search(ctx context.Context, domain Domain, query string, limit int) ([]Item, error) {
+func (runner Runner) Search(ctx context.Context, selector Selector, query string, limit int) ([]Item, error) {
 	binary := strings.TrimSpace(runner.Binary)
 	if binary == "" {
 		binary = defaultGitHubBinary
 	}
-	args, err := BuildArgs(domain, query, limit)
+	args, err := BuildArgs(selector, query, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -41,14 +41,14 @@ func (runner Runner) Search(ctx context.Context, domain Domain, query string, li
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, ctxErr
 		}
-		return nil, fmt.Errorf("gh search %s failed: %w%s", domain, err, stderrSuffix(stderr.String()))
+		return nil, fmt.Errorf("gh search %s failed: %w%s", selector, err, stderrSuffix(stderr.String()))
 	}
 	return ParseItems(stdout.Bytes())
 }
 
-// BuildArgs returns the gh argv for one search domain.
-func BuildArgs(domain Domain, query string, limit int) ([]string, error) {
-	endpoint, err := endpointForDomain(domain)
+// BuildArgs returns the gh argv for one search selector.
+func BuildArgs(selector Selector, query string, limit int) ([]string, error) {
+	endpoint, err := endpointForSelector(selector)
 	if err != nil {
 		return nil, err
 	}
@@ -57,27 +57,27 @@ func BuildArgs(domain Domain, query string, limit int) ([]string, error) {
 		return nil, errors.New("github search query is required")
 	}
 	args := []string{"api", "-X", "GET", endpoint, "-f", "q=" + query, "-F", "per_page=" + strconv.Itoa(apiLimit(limit))}
-	switch domain {
-	case DomainCode:
+	switch selector {
+	case SelectorCode:
 		args = append(args, "-H", "Accept: application/vnd.github.text-match+json")
-	case DomainCommit:
+	case SelectorCommit:
 		args = append(args, "-H", "Accept: application/vnd.github+json")
 	}
 	return args, nil
 }
 
-func endpointForDomain(domain Domain) (string, error) {
-	switch domain {
-	case DomainCode:
+func endpointForSelector(selector Selector) (string, error) {
+	switch selector {
+	case SelectorCode:
 		return "search/code", nil
-	case DomainCommit:
+	case SelectorCommit:
 		return "search/commits", nil
-	case DomainIssue, DomainPR:
+	case SelectorIssue, SelectorPR:
 		return "search/issues", nil
-	case DomainRepo:
+	case SelectorRepo:
 		return "search/repositories", nil
 	default:
-		return "", fmt.Errorf("unsupported github search domain %q", domain)
+		return "", fmt.Errorf("unsupported github selector %q", selector)
 	}
 }
 

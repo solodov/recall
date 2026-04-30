@@ -156,7 +156,7 @@ exit 1
 `
 	runner := Runner{Binary: writeFakeRG(t, script)}
 
-	result, err := runner.Run(context.Background(), RunOptions{Pattern: "router", Roots: []string{"/repo"}, Kinds: []SearchKind{SearchKindPath}})
+	result, err := runner.Run(context.Background(), RunOptions{Pattern: "router", Roots: []string{"/repo"}, Selectors: []SearchSelector{SearchSelectorFileName}})
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
@@ -180,7 +180,7 @@ printf '%%s\n' '{"type":"match","data":{"path":{"text":"/repo/src/Router.go"},"l
 `, argsPath)
 	runner := Runner{Binary: writeFakeRG(t, script)}
 
-	result, err := runner.Run(context.Background(), RunOptions{Pattern: "foo", Roots: []string{"/repo"}, Kinds: []SearchKind{SearchKindContent}, PathFilters: []PathFilter{{Include: true, Pattern: "router"}}})
+	result, err := runner.Run(context.Background(), RunOptions{Pattern: "foo", Roots: []string{"/repo"}, Selectors: []SearchSelector{SearchSelectorFileContent}, PathFilters: []PathFilter{{Include: true, Pattern: "router"}}})
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
@@ -209,7 +209,7 @@ printf '%%s\n' '{"type":"match","data":{"path":{"text":"/repo/src/main_test.go"}
 `, argsPath)
 	runner := Runner{Binary: writeFakeRG(t, script)}
 
-	result, err := runner.Run(context.Background(), RunOptions{Pattern: "foo", Roots: []string{"/repo"}, Kinds: []SearchKind{SearchKindContent}, PathFilters: []PathFilter{{Include: false, Pattern: "test"}}})
+	result, err := runner.Run(context.Background(), RunOptions{Pattern: "foo", Roots: []string{"/repo"}, Selectors: []SearchSelector{SearchSelectorFileContent}, PathFilters: []PathFilter{{Include: false, Pattern: "test"}}})
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}

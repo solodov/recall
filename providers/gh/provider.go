@@ -9,14 +9,14 @@ import (
 	recallprovider "github.com/solodov/recall/provider"
 )
 
-// SearchRunner executes one GitHub search domain and returns raw API items.
+// SearchRunner executes one GitHub search selector and returns raw API items.
 type SearchRunner interface {
-	Search(context.Context, Domain, string, int) ([]Item, error)
+	Search(context.Context, Selector, string, int) ([]Item, error)
 }
 
 // Options configures the first-party GitHub search provider.
 type Options struct {
-	Domains    []Domain
+	Selectors  []Selector
 	GitHubPath string
 	Runner     SearchRunner
 }
@@ -24,19 +24,19 @@ type Options struct {
 // Provider searches GitHub through the gh command. It intentionally performs no
 // default search unless recall supplies selector hints, keeping remote API usage opt-in.
 type Provider struct {
-	domains    []Domain
+	selectors  []Selector
 	gitHubPath string
 	runner     SearchRunner
 }
 
 // New constructs a GitHub-backed recall provider.
 func New(options Options) (*Provider, error) {
-	domains, err := normalizeDomains(options.Domains)
+	selectors, err := normalizeSelectors(options.Selectors)
 	if err != nil {
 		return nil, err
 	}
 	return &Provider{
-		domains:    domains,
+		selectors:  selectors,
 		gitHubPath: options.GitHubPath,
 		runner:     options.Runner,
 	}, nil
@@ -44,26 +44,26 @@ func New(options Options) (*Provider, error) {
 
 // ListCapabilities advertises configured GitHub selectors without calling GitHub.
 func (provider *Provider) ListCapabilities(context.Context, *searchv1.ListCapabilitiesRequest) (*searchv1.ListCapabilitiesResponse, error) {
-	surfaces := make([]*searchv1.SearchSurface, 0, len(provider.domains))
-	for _, domain := range provider.domains {
-		surfaces = append(surfaces, surfaceForDomain(domain))
+	surfaces := make([]*searchv1.SearchSurface, 0, len(provider.selectors))
+	for _, selector := range provider.selectors {
+		surfaces = append(surfaces, surfaceForSelector(selector))
 	}
 	return &searchv1.ListCapabilitiesResponse{Surfaces: surfaces}, nil
 }
 
-// Search runs only configured domains requested through advisory selector hints
-// and maps GitHub results into recall URI hits.
+// Search runs only configured selectors requested through advisory selector
+// hints and maps GitHub results into recall URI hits.
 func (provider *Provider) Search(ctx context.Context, request *searchv1.SearchRequest) (*searchv1.SearchResponse, error) {
 	if request == nil {
 		return nil, fmt.Errorf("search request is nil")
 	}
-	domains := provider.domainsFromHints(recallprovider.RequestedSelectors(request))
-	if len(domains) == 0 {
+	selectors := provider.selectorsFromHints(recallprovider.RequestedSelectors(request))
+	if len(selectors) == 0 {
 		return &searchv1.SearchResponse{}, nil
 	}
 	query := strings.TrimSpace(request.GetQuery())
 	if query == "" {
-		return nil, fmt.Errorf("github search query is required when selector hints request github domains")
+		return nil, fmt.Errorf("github search query is required when selector hints request github surfaces")
 	}
 
 	limit, _ := recallprovider.RequestedLimit(request)
@@ -73,16 +73,16 @@ func (provider *Provider) Search(ctx context.Context, request *searchv1.SearchRe
 	}
 
 	hits := []*searchv1.SearchHit{}
-	for _, domain := range domains {
-		domainLimit := remainingLimit(limit, len(hits))
-		if limit > 0 && domainLimit == 0 {
+	for _, selector := range selectors {
+		selectorLimit := remainingLimit(limit, len(hits))
+		if limit > 0 && selectorLimit == 0 {
 			break
 		}
-		items, err := runner.Search(ctx, domain, queryForDomain(domain, query), domainLimit)
+		items, err := runner.Search(ctx, selector, queryForSelector(selector, query), selectorLimit)
 		if err != nil {
 			return nil, err
 		}
-		hits = append(hits, HitsFromItems(domain, items)...)
+		hits = append(hits, HitsFromItems(selector, items)...)
 	}
 	if limit > 0 && len(hits) > limit {
 		hits = hits[:limit]
@@ -90,17 +90,17 @@ func (provider *Provider) Search(ctx context.Context, request *searchv1.SearchRe
 	return &searchv1.SearchResponse{Hits: hits}, nil
 }
 
-func (provider *Provider) domainsFromHints(hints map[string]bool) []Domain {
+func (provider *Provider) selectorsFromHints(hints map[string]bool) []Selector {
 	if len(hints) == 0 {
 		return nil
 	}
-	domains := make([]Domain, 0, len(provider.domains))
-	for _, domain := range provider.domains {
-		if selectorMatchesHint(string(domain), hints) {
-			domains = append(domains, domain)
+	selectors := make([]Selector, 0, len(provider.selectors))
+	for _, selector := range provider.selectors {
+		if selectorMatchesHint(string(selector), hints) {
+			selectors = append(selectors, selector)
 		}
 	}
-	return domains
+	return selectors
 }
 
 func selectorMatchesHint(selector string, hints map[string]bool) bool {
@@ -112,28 +112,28 @@ func selectorMatchesHint(selector string, hints map[string]bool) bool {
 	return false
 }
 
-func surfaceForDomain(domain Domain) *searchv1.SearchSurface {
-	switch domain {
-	case DomainCode:
-		return &searchv1.SearchSurface{Selector: string(domain), Title: "GitHub code", Description: "Search code files on GitHub"}
-	case DomainCommit:
-		return &searchv1.SearchSurface{Selector: string(domain), Title: "Commits", Description: "Search GitHub commit messages"}
-	case DomainIssue:
-		return &searchv1.SearchSurface{Selector: string(domain), Title: "Issues", Description: "Search GitHub issue titles and bodies"}
-	case DomainPR:
-		return &searchv1.SearchSurface{Selector: string(domain), Title: "Pull requests", Description: "Search GitHub pull request titles and bodies"}
-	case DomainRepo:
-		return &searchv1.SearchSurface{Selector: string(domain), Title: "Repositories", Description: "Search GitHub repository names and descriptions"}
+func surfaceForSelector(selector Selector) *searchv1.SearchSurface {
+	switch selector {
+	case SelectorCode:
+		return &searchv1.SearchSurface{Selector: string(selector), Title: "GitHub code", Description: "Search code files on GitHub"}
+	case SelectorCommit:
+		return &searchv1.SearchSurface{Selector: string(selector), Title: "Commits", Description: "Search GitHub commit messages"}
+	case SelectorIssue:
+		return &searchv1.SearchSurface{Selector: string(selector), Title: "Issues", Description: "Search GitHub issue titles and bodies"}
+	case SelectorPR:
+		return &searchv1.SearchSurface{Selector: string(selector), Title: "Pull requests", Description: "Search GitHub pull request titles and bodies"}
+	case SelectorRepo:
+		return &searchv1.SearchSurface{Selector: string(selector), Title: "Repositories", Description: "Search GitHub repository names and descriptions"}
 	default:
-		return &searchv1.SearchSurface{Selector: string(domain), Title: string(domain)}
+		return &searchv1.SearchSurface{Selector: string(selector), Title: string(selector)}
 	}
 }
 
-func queryForDomain(domain Domain, query string) string {
-	switch domain {
-	case DomainIssue:
+func queryForSelector(selector Selector, query string) string {
+	switch selector {
+	case SelectorIssue:
 		return query + " type:issue"
-	case DomainPR:
+	case SelectorPR:
 		return query + " type:pr"
 	default:
 		return query

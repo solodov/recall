@@ -15,6 +15,20 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+func TestProviderListCapabilitiesAdvertisesFileSelectors(t *testing.T) {
+	response, err := New(Options{}).ListCapabilities(context.Background(), &searchv1.ListCapabilitiesRequest{})
+	if err != nil {
+		t.Fatalf("ListCapabilities returned error: %v", err)
+	}
+	selectors := []string{}
+	for _, surface := range response.GetSurfaces() {
+		selectors = append(selectors, surface.GetSelector())
+	}
+	if !reflect.DeepEqual(selectors, []string{SelectorFileName, SelectorFileContent}) {
+		t.Fatalf("selectors = %#v, want file name and content", selectors)
+	}
+}
+
 func TestProviderSearchPassesExistingRootsQueryAndLimitToRunner(t *testing.T) {
 	root := t.TempDir()
 	runner := &recordingRunner{result: RunResult{Matches: []Match{{
@@ -38,8 +52,8 @@ func TestProviderSearchPassesExistingRootsQueryAndLimitToRunner(t *testing.T) {
 	if !reflect.DeepEqual(runner.options.Roots, []string{root}) {
 		t.Fatalf("roots = %#v, want %q", runner.options.Roots, root)
 	}
-	if !reflect.DeepEqual(runner.options.Kinds, []SearchKind{SearchKindPath, SearchKindContent}) {
-		t.Fatalf("kinds = %#v, want path and content", runner.options.Kinds)
+	if !reflect.DeepEqual(runner.options.Selectors, []SearchSelector{SearchSelectorFileName, SearchSelectorFileContent}) {
+		t.Fatalf("selectors = %#v, want file name and content", runner.options.Selectors)
 	}
 	if !reflect.DeepEqual(runner.options.FileTypes, []string{"go"}) {
 		t.Fatalf("file types = %#v, want go", runner.options.FileTypes)
@@ -113,20 +127,20 @@ func TestProviderSearchWithoutLimitReturnsAllRunnerMatches(t *testing.T) {
 	}
 }
 
-func TestProviderSearchUsesPathKindHint(t *testing.T) {
+func TestProviderSearchUsesFileNameSelectorHint(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "providers", "ripgrep", "runner.go")
 	runner := &recordingRunner{result: RunResult{PathMatches: []PathMatch{{Path: path}}}}
 	provider := New(Options{Roots: []string{root}, Runner: runner})
 
-	response, err := provider.Search(context.Background(), &searchv1.SearchRequest{Query: "runner", SelectorHints: []string{"path"}})
+	response, err := provider.Search(context.Background(), &searchv1.SearchRequest{Query: "runner", SelectorHints: []string{SelectorFileName}})
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
-	if !reflect.DeepEqual(runner.options.Kinds, []SearchKind{SearchKindPath}) {
-		t.Fatalf("kinds = %#v, want path", runner.options.Kinds)
+	if !reflect.DeepEqual(runner.options.Selectors, []SearchSelector{SearchSelectorFileName}) {
+		t.Fatalf("selectors = %#v, want file name", runner.options.Selectors)
 	}
-	if len(response.GetHits()) != 1 || response.GetHits()[0].GetSelector() != KindPathMatch || response.GetHits()[0].GetTitle() != "runner.go" {
+	if len(response.GetHits()) != 1 || response.GetHits()[0].GetSelector() != SelectorFileName || response.GetHits()[0].GetTitle() != "runner.go" {
 		t.Fatalf("hits = %#v, want mapped path match", response.GetHits())
 	}
 }
@@ -136,12 +150,12 @@ func TestProviderSearchReturnsNoHitsForUnsupportedSelectorHints(t *testing.T) {
 	runner := &recordingRunner{}
 	provider := New(Options{Roots: []string{root}, Runner: runner})
 
-	response, err := provider.Search(context.Background(), &searchv1.SearchRequest{Query: "runner", SelectorHints: []string{"pr"}})
+	response, err := provider.Search(context.Background(), &searchv1.SearchRequest{Query: "runner", SelectorHints: []string{"pr:content"}})
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
 	if runner.called {
-		t.Fatal("runner was called despite unsupported kind hints")
+		t.Fatal("runner was called despite unsupported selector hints")
 	}
 	if len(response.GetHits()) != 0 {
 		t.Fatalf("hits = %#v, want none", response.GetHits())
@@ -153,7 +167,7 @@ func TestProviderSearchPassesPathFilters(t *testing.T) {
 	runner := &recordingRunner{}
 	provider := New(Options{Roots: []string{root}, Runner: runner})
 
-	_, err := provider.Search(context.Background(), &searchv1.SearchRequest{Query: "foo in:router -in:generated", SelectorHints: []string{"content"}})
+	_, err := provider.Search(context.Background(), &searchv1.SearchRequest{Query: "foo in:router -in:generated", SelectorHints: []string{SelectorFileContent}})
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
@@ -161,8 +175,8 @@ func TestProviderSearchPassesPathFilters(t *testing.T) {
 	if !reflect.DeepEqual(runner.options.PathFilters, want) {
 		t.Fatalf("path filters = %#v, want %#v", runner.options.PathFilters, want)
 	}
-	if !reflect.DeepEqual(runner.options.Kinds, []SearchKind{SearchKindContent}) {
-		t.Fatalf("kinds = %#v, want content", runner.options.Kinds)
+	if !reflect.DeepEqual(runner.options.Selectors, []SearchSelector{SearchSelectorFileContent}) {
+		t.Fatalf("selectors = %#v, want file content", runner.options.Selectors)
 	}
 }
 
@@ -209,8 +223,8 @@ func TestProviderServesThroughSDKWithTextproto(t *testing.T) {
 	if err := prototext.Unmarshal(stdout.Bytes(), response); err != nil {
 		t.Fatalf("response was not textproto: %v", err)
 	}
-	if len(response.GetHits()) != 1 || response.GetHits()[0].GetSelector() != KindCodeMatch {
-		t.Fatalf("response hits = %#v, want code match", response.GetHits())
+	if len(response.GetHits()) != 1 || response.GetHits()[0].GetSelector() != SelectorFileContent {
+		t.Fatalf("response hits = %#v, want file content match", response.GetHits())
 	}
 }
 
@@ -226,7 +240,7 @@ func (runner *recordingRunner) Run(_ context.Context, options RunOptions) (RunRe
 	runner.options = RunOptions{
 		Pattern:     options.Pattern,
 		Roots:       append([]string{}, options.Roots...),
-		Kinds:       append([]SearchKind{}, options.Kinds...),
+		Selectors:   append([]SearchSelector{}, options.Selectors...),
 		FileTypes:   append([]string{}, options.FileTypes...),
 		PathFilters: append([]PathFilter{}, options.PathFilters...),
 		Limit:       options.Limit,

@@ -44,10 +44,41 @@ func TestServeSearchTextprotoAutoDetectsAndMirrorsInput(t *testing.T) {
 	}
 }
 
+func TestServeListCapabilitiesTextproto(t *testing.T) {
+	var stdout bytes.Buffer
+	provider := New()
+	err := provider.Serve(context.Background(), bytes.NewReader(nil), &stdout, []string{searchv1.SearchProviderListCapabilitiesPath})
+	if err != nil {
+		t.Fatalf("Serve returned error: %v", err)
+	}
+	response := &searchv1.ListCapabilitiesResponse{}
+	if err := prototext.Unmarshal(stdout.Bytes(), response); err != nil {
+		t.Fatalf("unmarshal textproto capabilities response: %v", err)
+	}
+	if len(response.GetSurfaces()) != 2 || response.GetSurfaces()[0].GetSelector() != "note:content" || response.GetSurfaces()[1].GetSelector() != "event:content" {
+		t.Fatalf("surfaces = %#v, want note and event content", response.GetSurfaces())
+	}
+}
+
 func TestSearchRejectsInvalidRequest(t *testing.T) {
 	_, err := New().Search(context.Background(), &searchv1.SearchRequest{Query: "", Limit: proto.Uint32(1)})
 	if err == nil || !strings.Contains(err.Error(), "query") {
 		t.Fatalf("empty query error = %v, want query validation", err)
+	}
+}
+
+func TestSearchUsesSelectorHints(t *testing.T) {
+	response, err := New().Search(context.Background(), &searchv1.SearchRequest{Query: "example", SelectorHints: []string{"note"}})
+	if err != nil {
+		t.Fatalf("Search returned error: %v", err)
+	}
+	if len(response.GetHits()) != 2 {
+		t.Fatalf("hit count = %d, want note-only fixture hits", len(response.GetHits()))
+	}
+	for _, hit := range response.GetHits() {
+		if hit.GetSelector() != "note:content" {
+			t.Fatalf("hit selector = %q, want note:content", hit.GetSelector())
+		}
 	}
 }
 
@@ -91,7 +122,7 @@ func assertExampleSearchResponse(t *testing.T, response *searchv1.SearchResponse
 	if hit.GetId() != "example:rollout-note" {
 		t.Fatalf("hit id = %q, want example:rollout-note", hit.GetId())
 	}
-	if hit.GetSelector() != "note" || hit.GetTitle() != "Sample rollout note" || hit.GetSnippet() == "" {
+	if hit.GetSelector() != "note:content" || hit.GetTitle() != "Sample rollout note" || hit.GetSnippet() == "" {
 		t.Fatalf("hit missing required display fields: %#v", hit)
 	}
 	if hit.Score == nil {

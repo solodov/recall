@@ -63,9 +63,9 @@ func pathHitFromMatch(match PathMatch, options HitOptions) *searchv1.SearchHit {
 	displayPath := displayMatchPath(absolutePath, options.Roots)
 	displayDir := displayMatchPath(filepath.Dir(absolutePath), options.Roots)
 	return &searchv1.SearchHit{
-		Id:    fmt.Sprintf("file_name:%s", absolutePath),
-		Selector:  SelectorFileName,
-		Title: filepath.Base(displayPath),
+		Id:       fmt.Sprintf("file_name:%s", absolutePath),
+		Selector: SelectorFileName,
+		Title:    filepath.Base(displayPath),
 		Targets: []*searchv1.OpenTarget{
 			fileTarget(absolutePath, 0, 0),
 		},
@@ -89,10 +89,10 @@ func hitFromMatch(match Match, options HitOptions) *searchv1.SearchHit {
 	}
 
 	return &searchv1.SearchHit{
-		Id:      fmt.Sprintf("file_content:%s:%d:%d", absolutePath, lineNumber, column),
-		Selector:    SelectorFileContent,
-		Title:   fmt.Sprintf("%s:%d:%d", displayPath, lineNumber, column),
-		Snippet: proto.String(match.Line),
+		Id:       fmt.Sprintf("file_content:%s:%d:%d", absolutePath, lineNumber, column),
+		Selector: SelectorFileContent,
+		Title:    fmt.Sprintf("%s:%d:%d", displayPath, lineNumber, column),
+		Snippet:  proto.String(match.Line),
 		Targets: []*searchv1.OpenTarget{
 			fileTarget(absolutePath, lineNumber, column),
 		},

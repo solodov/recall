@@ -10,7 +10,7 @@ import (
 )
 
 func TestBuildArgsUsesGitHubSearchEndpoint(t *testing.T) {
-	args, err := BuildArgs(DomainPR, "parser repo:example/project type:pr", 25)
+	args, err := BuildArgs(SelectorPR, "parser repo:example/project type:pr", 25)
 	if err != nil {
 		t.Fatalf("BuildArgs returned error: %v", err)
 	}
@@ -21,7 +21,7 @@ func TestBuildArgsUsesGitHubSearchEndpoint(t *testing.T) {
 }
 
 func TestBuildArgsCapsAPILimit(t *testing.T) {
-	args, err := BuildArgs(DomainCode, "parser", 500)
+	args, err := BuildArgs(SelectorCode, "parser", 500)
 	if err != nil {
 		t.Fatalf("BuildArgs returned error: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestRunnerSearchUsesFakeGH(t *testing.T) {
 	fakeGH := writeFakeGH(t, argsPath, `{"items":[{"number":3,"title":"Fix parser","state":"open","html_url":"https://github.com/example/project/issues/3","repository_url":"https://api.github.com/repos/example/project"}]}`)
 	runner := Runner{Binary: fakeGH}
 
-	items, err := runner.Search(context.Background(), DomainIssue, "parser type:issue", 7)
+	items, err := runner.Search(context.Background(), SelectorIssue, "parser type:issue", 7)
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}

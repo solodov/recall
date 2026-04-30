@@ -1,5 +1,5 @@
 # Example recall registry entry for GitHub search through the gh CLI.
-# GitHub search is kind-hinted: use recall -k code|commit|issue|pr|repo.
+# GitHub search is selector-hinted: use recall -s github:file:content, github:pr:content, etc.
 providers {
   id: "github"
   enabled: true

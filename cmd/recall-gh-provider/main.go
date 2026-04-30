@@ -12,12 +12,12 @@ import (
 
 func main() {
 	flags := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-	var domains domainListFlag
-	flags.Var(&domains, "domain", "GitHub search domain to enable: code, commit, issue, pr, or repo; repeatable and defaults to all")
+	var selectors selectorListFlag
+	flags.Var(&selectors, "selector", "GitHub selector to enable: file:content, commit:content, issue:content, pr:content, or repo:name; repeatable and defaults to all")
 	ghPath := flags.String("gh", "gh", "GitHub CLI executable path")
 	flags.Parse(os.Args[1:])
 
-	provider, err := gh.New(gh.Options{Domains: domains, GitHubPath: *ghPath})
+	provider, err := gh.New(gh.Options{Selectors: selectors, GitHubPath: *ghPath})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -28,17 +28,17 @@ func main() {
 	}
 }
 
-type domainListFlag []gh.Domain
+type selectorListFlag []gh.Selector
 
-func (values *domainListFlag) String() string {
-	return fmt.Sprint([]gh.Domain(*values))
+func (values *selectorListFlag) String() string {
+	return fmt.Sprint([]gh.Selector(*values))
 }
 
-func (values *domainListFlag) Set(value string) error {
-	domain, err := gh.ParseDomain(value)
+func (values *selectorListFlag) Set(value string) error {
+	selector, err := gh.ParseSelector(value)
 	if err != nil {
 		return err
 	}
-	*values = append(*values, domain)
+	*values = append(*values, selector)
 	return nil
 }

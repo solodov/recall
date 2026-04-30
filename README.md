@@ -7,16 +7,17 @@ Providers implement the versioned protobuf service in `proto/recall/search/v1/se
 ```proto
 service SearchProvider {
   rpc Search(SearchRequest) returns (SearchResponse);
+  rpc ListCapabilities(ListCapabilitiesRequest) returns (ListCapabilitiesResponse);
 }
 
 message SearchRequest {
   string query = 1;
   optional uint32 limit = 2;
-  repeated string kind_hints = 3;
+  repeated string selector_hints = 3;
 }
 ```
 
-Recall-level flags such as `--source`, `--kind`, and output format are orchestration or rendering controls. Providers receive `query`, optional `limit`, and advisory `kind_hints`; recall still applies authoritative kind filtering after provider responses.
+Recall-level selector routing and output format are orchestration or rendering controls. Providers receive `query`, optional `limit`, and advisory provider-local `selector_hints`; recall still applies authoritative selector filtering after provider responses. The selector taxonomy is documented in the proto comments.
 
 ## Stdio provider protocol
 
@@ -34,10 +35,11 @@ The final argument is the RPC path:
 /<protobuf service>/<method>
 ```
 
-For the built-in search contract, that path is:
+For the built-in search contract, the paths are:
 
 ```text
 /recall.search.v1.SearchProvider/Search
+/recall.search.v1.SearchProvider/ListCapabilities
 ```
 
 Providers auto-detect whether stdin is protobuf binary or textproto, then mirror the same format on stdout. `recall` uses protobuf binary for normal provider calls; humans can pipe textproto directly for debugging.
@@ -60,8 +62,12 @@ import (
 
 type Provider struct{}
 
+func (Provider) ListCapabilities(context.Context, *searchv1.ListCapabilitiesRequest) (*searchv1.ListCapabilitiesResponse, error) {
+	return &searchv1.ListCapabilitiesResponse{Surfaces: []*searchv1.SearchSurface{{Selector: "note:content", Title: "Notes"}}}, nil
+}
+
 func (Provider) Search(ctx context.Context, request *searchv1.SearchRequest) (*searchv1.SearchResponse, error) {
-	hits := []*searchv1.SearchHit{{Id: "example:1", Kind: "note", Title: request.GetQuery()}}
+	hits := []*searchv1.SearchHit{{Id: "example:1", Selector: "note:content", Title: request.GetQuery()}}
 	if limit, ok := recallprovider.RequestedLimit(request); ok && len(hits) > limit {
 		hits = hits[:limit]
 	}
@@ -76,7 +82,7 @@ func main() {
 }
 ```
 
-The SDK handles the stdio RPC path, stdin format auto-detection, mirrored stdout encoding, and dispatch to `Search`.
+The SDK handles the stdio RPC path, stdin format auto-detection, mirrored stdout encoding, and dispatch to `Search` or `ListCapabilities`.
 
 ## First-party providers
 
@@ -143,7 +149,7 @@ providers {
 }
 ```
 
-Service and method are protocol-owned, so they are not config fields. For stdio providers, `recall` appends `/recall.search.v1.SearchProvider/Search` at call time.
+Service and method are protocol-owned, so they are not config fields. For stdio providers, `recall` appends the selected `SearchProvider` RPC path at call time.
 
 `openers` are optional local commands used by `recall-open` for OSC 8 `recall://` terminal links.
 

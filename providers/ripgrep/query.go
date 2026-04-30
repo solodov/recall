@@ -7,12 +7,12 @@ import (
 	"strings"
 )
 
-// SearchKind selects which ripgrep-backed result family a query should emit.
-type SearchKind string
+// SearchSelector selects which ripgrep-backed surface a query should emit.
+type SearchSelector string
 
 const (
-	SearchKindContent SearchKind = SelectorFileContent
-	SearchKindPath    SearchKind = SelectorFileName
+	SearchSelectorFileContent SearchSelector = SelectorFileContent
+	SearchSelectorFileName    SearchSelector = SelectorFileName
 )
 
 // PathFilter matches root-relative slash-normalized file paths before a search.
@@ -24,7 +24,7 @@ type PathFilter struct {
 // Query is the provider-owned search shape produced from the user query text.
 type Query struct {
 	Pattern     string
-	Kinds       []SearchKind
+	Selectors   []SearchSelector
 	FileTypes   []string
 	PathFilters []PathFilter
 }
@@ -67,18 +67,18 @@ func ParseQuery(input string) (Query, error) {
 		}
 	}
 	query.Pattern = strings.TrimSpace(strings.Join(patternTerms, " "))
-	query.Kinds = defaultSearchKinds(query)
+	query.Selectors = defaultSearchSelectors(query)
 	if err := validateQuery(query); err != nil {
 		return Query{}, err
 	}
 	return query, nil
 }
 
-func defaultSearchKinds(query Query) []SearchKind {
+func defaultSearchSelectors(query Query) []SearchSelector {
 	if query.Pattern == "" && hasIncludePathFilter(query.PathFilters) {
-		return []SearchKind{SearchKindPath}
+		return []SearchSelector{SearchSelectorFileName}
 	}
-	return []SearchKind{SearchKindPath, SearchKindContent}
+	return []SearchSelector{SearchSelectorFileName, SearchSelectorFileContent}
 }
 
 func hasIncludePathFilter(filters []PathFilter) bool {
@@ -109,18 +109,18 @@ func validateQuery(query Query) error {
 	if query.Pattern != "" {
 		return nil
 	}
-	if containsSearchKind(query.Kinds, SearchKindContent) {
+	if containsSearchSelector(query.Selectors, SearchSelectorFileContent) {
 		return errors.New("ripgrep content search must contain search text")
 	}
-	if containsSearchKind(query.Kinds, SearchKindPath) && hasIncludePathFilter(query.PathFilters) {
+	if containsSearchSelector(query.Selectors, SearchSelectorFileName) && hasIncludePathFilter(query.PathFilters) {
 		return nil
 	}
 	return errors.New("ripgrep query must contain search text or an in:regex path selector")
 }
 
-func containsSearchKind(kinds []SearchKind, kind SearchKind) bool {
-	for _, existing := range kinds {
-		if existing == kind {
+func containsSearchSelector(selectors []SearchSelector, selector SearchSelector) bool {
+	for _, existing := range selectors {
+		if existing == selector {
 			return true
 		}
 	}

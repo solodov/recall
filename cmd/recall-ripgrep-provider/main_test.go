@@ -46,8 +46,8 @@ func TestRipgrepProviderBinarySmokeUsesFakeRG(t *testing.T) {
 		t.Fatalf("hit count = %d, want 1", len(response.GetHits()))
 	}
 	hit := response.GetHits()[0]
-	if hit.GetSelector() != ripgrep.KindCodeMatch || hit.GetTitle() != "main.go:4:1" || hit.GetSnippet() != "foo()" {
-		t.Fatalf("hit = %#v, want mapped code match", hit)
+	if hit.GetSelector() != ripgrep.SelectorFileContent || hit.GetTitle() != "main.go:4:1" || hit.GetSnippet() != "foo()" {
+		t.Fatalf("hit = %#v, want mapped file content match", hit)
 	}
 
 	args, err := os.ReadFile(fakeArgsPath)

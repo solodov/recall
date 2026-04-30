@@ -55,6 +55,7 @@ func (provider *Provider) Search(ctx context.Context, request *searchv1.SearchRe
 		return nil, fmt.Errorf("query must be non-empty")
 	}
 	limit, _ := recallprovider.RequestedLimit(request)
+	selectorHints := recallprovider.RequestedSelectors(request)
 
 	terms := strings.Fields(strings.ToLower(query))
 	hits := make([]*searchv1.SearchHit, 0, len(provider.documents))
@@ -62,7 +63,7 @@ func (provider *Provider) Search(ctx context.Context, request *searchv1.SearchRe
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if !document.matches(terms) {
+		if !document.matches(terms) || !matchesSelectorHint(document.selector, selectorHints) {
 			continue
 		}
 		hits = append(hits, document.hit())
@@ -96,6 +97,18 @@ type fixtureDocument struct {
 	occurredAt time.Time
 }
 
+func matchesSelectorHint(selector string, hints map[string]bool) bool {
+	if len(hints) == 0 {
+		return true
+	}
+	for hint := range hints {
+		if selector == hint || strings.HasPrefix(selector, hint+":") {
+			return true
+		}
+	}
+	return false
+}
+
 func (document fixtureDocument) matches(terms []string) bool {
 	text := strings.ToLower(strings.Join([]string{
 		document.id,
@@ -114,9 +127,9 @@ func (document fixtureDocument) matches(terms []string) bool {
 
 func (document fixtureDocument) hit() *searchv1.SearchHit {
 	return &searchv1.SearchHit{
-		Id:       document.id,
-		Selector: document.selector,
-		Title:    document.title,
+		Id:         document.id,
+		Selector:   document.selector,
+		Title:      document.title,
 		Snippet:    proto.String(document.snippet),
 		Score:      proto.Float64(document.score),
 		Targets:    cloneOpenTargets(document.targets),
@@ -131,8 +144,8 @@ func defaultFixtureDocuments() []fixtureDocument {
 			id:       "example:rollout-note",
 			selector: "note:content",
 			title:    "Sample rollout note",
-			snippet: "Checklist for staged rollouts, fallback commands, and verification steps.",
-			score:   0.98,
+			snippet:  "Checklist for staged rollouts, fallback commands, and verification steps.",
+			score:    0.98,
 			targets: []*searchv1.OpenTarget{
 				fileTarget("/tmp/recall-example/rollout-note.md", 0, 0),
 				uriTarget("https://example.invalid/recall/rollout-note"),
@@ -148,8 +161,8 @@ func defaultFixtureDocuments() []fixtureDocument {
 			id:       "example:planning-session",
 			selector: "event:content",
 			title:    "Fixture planning session",
-			snippet: "Synthetic calendar event covering risks, owners, and follow-up notes.",
-			score:   0.91,
+			snippet:  "Synthetic calendar event covering risks, owners, and follow-up notes.",
+			score:    0.91,
 			targets: []*searchv1.OpenTarget{
 				uriTarget("https://calendar.example.invalid/event/planning-session"),
 				fileTarget("/tmp/recall-example/planning-session.md", 0, 0),
@@ -165,8 +178,8 @@ func defaultFixtureDocuments() []fixtureDocument {
 			id:       "example:recall-design",
 			selector: "note:content",
 			title:    "Recall provider design",
-			snippet: "Federated search design using protobuf SearchProvider and stdio RPC.",
-			score:   0.87,
+			snippet:  "Federated search design using protobuf SearchProvider and stdio RPC.",
+			score:    0.87,
 			targets: []*searchv1.OpenTarget{
 				fileTarget("/tmp/recall-example/recall-provider-design.md", 0, 0),
 			},

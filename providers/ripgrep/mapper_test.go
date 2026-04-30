@@ -9,7 +9,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func TestHitsFromMatchesMapsCodeMatchFields(t *testing.T) {
+func TestHitsFromMatchesMapsFileContentFields(t *testing.T) {
 	root := t.TempDir()
 	matchPath := filepath.Join(root, "src", "main.go")
 
@@ -24,10 +24,10 @@ func TestHitsFromMatchesMapsCodeMatchFields(t *testing.T) {
 		t.Fatalf("hit count = %d, want 1", len(hits))
 	}
 	hit := hits[0]
-	if hit.GetSelector() != KindCodeMatch {
-		t.Fatalf("kind = %q, want %q", hit.GetSelector(), KindCodeMatch)
+	if hit.GetSelector() != SelectorFileContent {
+		t.Fatalf("selector = %q, want %q", hit.GetSelector(), SelectorFileContent)
 	}
-	if hit.GetId() != "code_match:"+matchPath+":42:14" {
+	if hit.GetId() != "file_content:"+matchPath+":42:14" {
 		t.Fatalf("id = %q", hit.GetId())
 	}
 	if hit.GetTitle() != "src/main.go:42:14" {
@@ -57,10 +57,10 @@ func TestPathHitsFromMatchesMapsFileAndDirectoryFields(t *testing.T) {
 		t.Fatalf("hit count = %d, want 1", len(hits))
 	}
 	hit := hits[0]
-	if hit.GetSelector() != KindPathMatch || hit.GetTitle() != "runner.go" {
+	if hit.GetSelector() != SelectorFileName || hit.GetTitle() != "runner.go" {
 		t.Fatalf("hit = %#v, want path match title", hit)
 	}
-	if hit.GetId() != "path_match:"+matchPath {
+	if hit.GetId() != "file_name:"+matchPath {
 		t.Fatalf("id = %q", hit.GetId())
 	}
 	if len(hit.GetTargets()) != 1 || hit.GetTargets()[0].GetFile().GetPath() != matchPath {

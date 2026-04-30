@@ -27,7 +27,7 @@ const (
 type RunOptions struct {
 	Pattern     string
 	Roots       []string
-	Kinds       []SearchKind
+	Selectors   []SearchSelector
 	FileTypes   []string
 	PathFilters []PathFilter
 	Limit       int
@@ -144,21 +144,21 @@ func (runner Runner) Run(ctx context.Context, options RunOptions) (RunResult, er
 	if binary == "" {
 		binary = defaultRipgrepBinary
 	}
-	kinds := options.Kinds
-	if len(kinds) == 0 {
-		kinds = []SearchKind{SearchKindContent}
+	selectors := options.Selectors
+	if len(selectors) == 0 {
+		selectors = []SearchSelector{SearchSelectorFileContent}
 	}
 
 	var result RunResult
 	var contentFiles []string
 	var haveContentFiles bool
-	if containsSearchKind(kinds, SearchKindPath) || hasIncludePathFilter(options.PathFilters) {
+	if containsSearchSelector(selectors, SearchSelectorFileName) || hasIncludePathFilter(options.PathFilters) {
 		files, warnings, err := runner.listFiles(ctx, binary, options)
 		if err != nil {
 			return RunResult{}, err
 		}
 		result.Warnings = append(result.Warnings, warnings...)
-		if containsSearchKind(kinds, SearchKindPath) {
+		if containsSearchSelector(selectors, SearchSelectorFileName) {
 			pathFiles, err := filterPaths(files, options, true)
 			if err != nil {
 				return RunResult{}, err
@@ -175,9 +175,9 @@ func (runner Runner) Run(ctx context.Context, options RunOptions) (RunResult, er
 		}
 	}
 
-	if containsSearchKind(kinds, SearchKindContent) && !limitReached(options.Limit, result) {
+	if containsSearchSelector(selectors, SearchSelectorFileContent) && !limitReached(options.Limit, result) {
 		contentOptions := options
-		contentOptions.Kinds = []SearchKind{SearchKindContent}
+		contentOptions.Selectors = []SearchSelector{SearchSelectorFileContent}
 		contentOptions.Limit = remainingLimit(options.Limit, len(result.PathMatches))
 		if haveContentFiles {
 			contentOptions.Roots = contentFiles

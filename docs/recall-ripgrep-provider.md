@@ -38,8 +38,8 @@ router type:go in:internal -in:test
 ```
 
 - Free text searches file contents and also matches file paths by substring.
-- Recall `--kind/-k path` returns only file-name/path matches.
-- Recall `--kind/-k content` returns only content matches.
+- Selector `file:name` returns only file-name/path matches.
+- Selector `file:content` returns only content matches.
 - `type:foo` forwards `foo` as a ripgrep file type, equivalent to `rg --type foo`; repeat it to pass multiple types.
 - `in:regex` keeps only root-relative file paths matching the regex.
 - `-in:regex` excludes root-relative file paths matching the regex.
@@ -51,10 +51,10 @@ A path-only query can omit free text when it has an inclusion filter:
 in:router
 ```
 
-From `recall`, add `-k path` before the query to request only path hits:
+From `recall`, select `code:file:name` to request only path hits:
 
 ```bash
-recall -s code -k path in:router
+recall -s code:file:name in:router
 ```
 
 ## Direct provider debugging
@@ -79,11 +79,17 @@ printf 'query: "foo type:go -in:test"\nlimit: 20\n' |
   dist/recall-ripgrep-provider --root /path/to/repo /recall.search.v1.SearchProvider/Search
 ```
 
-Add advisory kind hints to debug provider-side narrowing directly:
+Add advisory selector hints to debug provider-side narrowing directly:
 
 ```bash
-printf 'query: "foo type:go -in:test"\nkind_hints: "content"\n' |
+printf 'query: "foo type:go -in:test"\nselector_hints: "file:content"\n' |
   dist/recall-ripgrep-provider --root /path/to/repo /recall.search.v1.SearchProvider/Search
 ```
 
-The provider mirrors the input format, so textproto input produces a textproto `SearchResponse`.
+List provider capabilities directly:
+
+```bash
+printf '' | dist/recall-ripgrep-provider --root /path/to/repo /recall.search.v1.SearchProvider/ListCapabilities
+```
+
+The provider mirrors the input format, so textproto input produces a textproto response.

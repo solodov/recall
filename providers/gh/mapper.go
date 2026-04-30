@@ -63,27 +63,27 @@ type TextMatch struct {
 type PullRequest struct{}
 
 // HitsFromItems maps GitHub search items into grouped recall URI hits.
-func HitsFromItems(domain Domain, items []Item) []*searchv1.SearchHit {
+func HitsFromItems(selector Selector, items []Item) []*searchv1.SearchHit {
 	hits := make([]*searchv1.SearchHit, 0, len(items))
 	for _, item := range items {
-		if hit := hitFromItem(domain, item); hit != nil {
+		if hit := hitFromItem(selector, item); hit != nil {
 			hits = append(hits, hit)
 		}
 	}
 	return hits
 }
 
-func hitFromItem(domain Domain, item Item) *searchv1.SearchHit {
-	switch domain {
-	case DomainCode:
+func hitFromItem(selector Selector, item Item) *searchv1.SearchHit {
+	switch selector {
+	case SelectorCode:
 		return codeHit(item)
-	case DomainCommit:
+	case SelectorCommit:
 		return commitHit(item)
-	case DomainIssue:
-		return issueLikeHit(DomainIssue, item)
-	case DomainPR:
-		return issueLikeHit(DomainPR, item)
-	case DomainRepo:
+	case SelectorIssue:
+		return issueLikeHit(SelectorIssue, item)
+	case SelectorPR:
+		return issueLikeHit(SelectorPR, item)
+	case SelectorRepo:
 		return repoHit(item)
 	default:
 		return nil
@@ -98,12 +98,12 @@ func codeHit(item Item) *searchv1.SearchHit {
 		return nil
 	}
 	return &searchv1.SearchHit{
-		Id:      stableID(DomainCode, repo, path, item.SHA),
-		Selector:    string(DomainCode),
-		Title:   path,
-		Snippet: optionalString(firstTextFragment(item.TextMatches)),
-		Targets: []*searchv1.OpenTarget{uriTarget(uri)},
-		Group:   repoGroup(repo),
+		Id:       stableID(SelectorCode, repo, path, item.SHA),
+		Selector: string(SelectorCode),
+		Title:    path,
+		Snippet:  optionalString(firstTextFragment(item.TextMatches)),
+		Targets:  []*searchv1.OpenTarget{uriTarget(uri)},
+		Group:    repoGroup(repo),
 	}
 }
 
@@ -119,8 +119,8 @@ func commitHit(item Item) *searchv1.SearchHit {
 		message = sha
 	}
 	return &searchv1.SearchHit{
-		Id:         stableID(DomainCommit, repo, item.SHA),
-		Selector:       string(DomainCommit),
+		Id:         stableID(SelectorCommit, repo, item.SHA),
+		Selector:   string(SelectorCommit),
 		Title:      strings.TrimSpace(sha + " " + message),
 		Snippet:    optionalString(item.Commit.Author.Name),
 		Targets:    []*searchv1.OpenTarget{uriTarget(uri)},
@@ -129,15 +129,15 @@ func commitHit(item Item) *searchv1.SearchHit {
 	}
 }
 
-func issueLikeHit(domain Domain, item Item) *searchv1.SearchHit {
+func issueLikeHit(selector Selector, item Item) *searchv1.SearchHit {
 	repo := repositoryName(item)
 	uri := itemURL(item)
 	if repo == "" || item.Number == 0 || strings.TrimSpace(item.Title) == "" || uri == "" {
 		return nil
 	}
 	return &searchv1.SearchHit{
-		Id:         stableID(domain, repo, fmt.Sprintf("%d", item.Number)),
-		Selector:       string(domain),
+		Id:         stableID(selector, repo, fmt.Sprintf("%d", item.Number)),
+		Selector:   string(selector),
 		Title:      fmt.Sprintf("#%d %s", item.Number, singleLine(item.Title)),
 		Snippet:    optionalString(item.State),
 		Targets:    []*searchv1.OpenTarget{uriTarget(uri)},
@@ -153,8 +153,8 @@ func repoHit(item Item) *searchv1.SearchHit {
 		return nil
 	}
 	return &searchv1.SearchHit{
-		Id:         stableID(DomainRepo, fullName),
-		Selector:       string(DomainRepo),
+		Id:         stableID(SelectorRepo, fullName),
+		Selector:   string(SelectorRepo),
 		Title:      fullName,
 		Snippet:    optionalString(repoSnippet(item)),
 		Targets:    []*searchv1.OpenTarget{uriTarget(uri)},
