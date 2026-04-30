@@ -15,6 +15,7 @@ import (
 	"github.com/solodov/recall/internal/orchestrator"
 	"github.com/solodov/recall/internal/render"
 	"github.com/solodov/recall/internal/runtime"
+	"github.com/solodov/recall/internal/searchclient"
 	configv1 "github.com/solodov/recall/proto/recall/config/v1"
 	searchv1 "github.com/solodov/recall/proto/recall/search/v1"
 	"github.com/spf13/cobra"
@@ -31,6 +32,15 @@ type SearchRunner func(runtime.Context, *configv1.RecallConfig, string, orchestr
 // and stderr verbosity.
 type RuntimeFactory func(context.Context, RuntimeOptions) (runtime.Context, error)
 
+// CapabilityLister returns provider-advertised selectors for list output.
+type CapabilityLister func(context.Context, *configv1.RecallConfig) (map[string]ProviderCapabilities, error)
+
+// ProviderCapabilities contains one provider's advertised selector surfaces.
+type ProviderCapabilities struct {
+	Selectors []string
+	Err       error
+}
+
 // RuntimeOptions contains command-line controlled debugging sinks.
 type RuntimeOptions struct {
 	LogPaths runtime.LogPaths
@@ -43,9 +53,10 @@ type App struct {
 	Stdout io.Writer
 	Stderr io.Writer
 
-	LoadConfig ConfigLoader
-	Search     SearchRunner
-	NewRuntime RuntimeFactory
+	LoadConfig       ConfigLoader
+	Search           SearchRunner
+	ListCapabilities CapabilityLister
+	NewRuntime       RuntimeFactory
 }
 
 // Run parses recall commands, loads provider config, dispatches searches, and
@@ -150,7 +161,11 @@ recall --config ./examples/config.txtpb sample`),
 				if err != nil {
 					return err
 				}
-				return renderProviders(stdout, loaded.Config)
+				capabilities, err := app.listCapabilities(cmd.Context(), loaded.Config)
+				if err != nil {
+					return err
+				}
+				return renderProviders(stdout, loaded.Config, capabilities)
 			}
 			return app.runSearch(cmd.Context(), stdout, stderr, *options, args)
 		},
@@ -317,6 +332,57 @@ func (app App) loadConfigWithLocations(configPath string) (config.LoadedConfig, 
 	return config.LoadDefaultWithLocations()
 }
 
+func (app App) listCapabilities(ctx context.Context, cfg *configv1.RecallConfig) (map[string]ProviderCapabilities, error) {
+	lister := app.ListCapabilities
+	if lister == nil {
+		lister = listProviderCapabilities
+	}
+	return lister(ctx, cfg)
+}
+
+func listProviderCapabilities(ctx context.Context, cfg *configv1.RecallConfig) (map[string]ProviderCapabilities, error) {
+	if cfg == nil {
+		return nil, errors.New("recall config is nil")
+	}
+	capabilities := make(map[string]ProviderCapabilities, len(cfg.GetProviders()))
+	for _, provider := range cfg.GetProviders() {
+		if provider == nil || strings.TrimSpace(provider.GetId()) == "" || !provider.GetEnabled() {
+			continue
+		}
+		providerID := provider.GetId()
+		client, err := searchclient.NewProviderClient(provider, searchclient.ProviderClientOptions{})
+		if err != nil {
+			capabilities[providerID] = ProviderCapabilities{Err: err}
+			continue
+		}
+		response, err := client.ListCapabilities(ctx, &searchv1.ListCapabilitiesRequest{})
+		if closer, ok := client.(interface{ Close() error }); ok {
+			_ = closer.Close()
+		}
+		if err != nil {
+			capabilities[providerID] = ProviderCapabilities{Err: err}
+			continue
+		}
+		capabilities[providerID] = ProviderCapabilities{Selectors: fullSelectors(providerID, response.GetSurfaces())}
+	}
+	return capabilities, nil
+}
+
+func fullSelectors(providerID string, surfaces []*searchv1.SearchSurface) []string {
+	selectors := make([]string, 0, len(surfaces))
+	for _, surface := range surfaces {
+		if surface == nil {
+			continue
+		}
+		selector := strings.TrimSpace(surface.GetSelector())
+		if selector == "" {
+			continue
+		}
+		selectors = append(selectors, providerID+":"+selector)
+	}
+	return selectors
+}
+
 func providerConfigTargets(locations map[string]config.Location) map[string]*searchv1.OpenTarget {
 	if len(locations) == 0 {
 		return nil
@@ -338,14 +404,14 @@ func providerConfigTargets(locations map[string]config.Location) map[string]*sea
 	return targets
 }
 
-func renderProviders(writer io.Writer, cfg *configv1.RecallConfig) error {
+func renderProviders(writer io.Writer, cfg *configv1.RecallConfig, capabilities map[string]ProviderCapabilities) error {
 	if cfg == nil || len(cfg.GetProviders()) == 0 {
 		_, err := fmt.Fprintln(writer, "No providers configured.")
 		return err
 	}
 
 	tabWriter := tabwriter.NewWriter(writer, 0, 0, 2, ' ', 0)
-	if _, err := fmt.Fprintln(tabWriter, "ID\tSTATUS\tWEIGHT\tLIMIT\tTIMEOUT\tTRANSPORTS\tTARGETS"); err != nil {
+	if _, err := fmt.Fprintln(tabWriter, "ID\tSTATUS\tWEIGHT\tLIMIT\tTIMEOUT\tTRANSPORTS\tTARGETS\tSELECTORS"); err != nil {
 		return err
 	}
 	for _, provider := range cfg.GetProviders() {
@@ -357,11 +423,31 @@ func renderProviders(writer io.Writer, cfg *configv1.RecallConfig) error {
 			status = "enabled"
 		}
 		transport, target := providerTransport(provider)
-		if _, err := fmt.Fprintf(tabWriter, "%s\t%s\t%.2f\t%d\t%dms\t%s\t%s\n", provider.GetId(), status, provider.GetWeight(), provider.GetDefaultLimit(), provider.GetTimeoutMs(), transport, target); err != nil {
+		if _, err := fmt.Fprintf(tabWriter, "%s\t%s\t%.2f\t%d\t%dms\t%s\t%s\t%s\n", provider.GetId(), status, provider.GetWeight(), provider.GetDefaultLimit(), provider.GetTimeoutMs(), transport, target, providerSelectors(provider, capabilities)); err != nil {
 			return err
 		}
 	}
 	return tabWriter.Flush()
+}
+
+func providerSelectors(provider *configv1.Provider, capabilities map[string]ProviderCapabilities) string {
+	if provider == nil {
+		return ""
+	}
+	if !provider.GetEnabled() {
+		return "disabled"
+	}
+	capability, ok := capabilities[provider.GetId()]
+	if !ok {
+		return "unknown"
+	}
+	if capability.Err != nil {
+		return "unavailable"
+	}
+	if len(capability.Selectors) == 0 {
+		return "none"
+	}
+	return strings.Join(capability.Selectors, ",")
 }
 
 func providerTransport(provider *configv1.Provider) (string, string) {

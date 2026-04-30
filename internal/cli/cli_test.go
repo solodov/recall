@@ -39,10 +39,10 @@ func TestRunLoadsConfigSearchesAndRendersResults(t *testing.T) {
 					ProviderID:   "example",
 					ProviderRank: 1,
 					Hit: &searchv1.SearchHit{
-						Id:      "example:1",
-						Selector:    "note",
-						Title:   "Example result",
-						Snippet: stringPtr("matched text"),
+						Id:       "example:1",
+						Selector: "note:content",
+						Title:    "Example result",
+						Snippet:  stringPtr("matched text"),
 					},
 				}},
 			}}}, nil
@@ -50,24 +50,21 @@ func TestRunLoadsConfigSearchesAndRendersResults(t *testing.T) {
 	}
 	stdout := app.Stdout.(*bytes.Buffer)
 
-	if err := app.Run(context.Background(), []string{"--source", "source-a,source-b", "--limit", "7", "sample", "query"}); err != nil {
+	if err := app.Run(context.Background(), []string{"--selector", "source-a,source-b", "--limit", "7", "sample", "query"}); err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
 
 	if receivedQuery != "sample query" {
 		t.Fatalf("query = %q, want joined query", receivedQuery)
 	}
-	if got := strings.Join(receivedOptions.Sources, ","); got != "source-a,source-b" {
-		t.Fatalf("sources = %q, want source-a,source-b", got)
+	if got := strings.Join(receivedOptions.Selectors, ","); got != "source-a,source-b" {
+		t.Fatalf("selectors = %q, want source-a,source-b", got)
 	}
 	if receivedOptions.Limit != 7 {
 		t.Fatalf("limit = %d, want 7", receivedOptions.Limit)
 	}
-	if len(receivedOptions.Kinds) != 0 {
-		t.Fatalf("kinds = %#v, want none", receivedOptions.Kinds)
-	}
 	output := stripTerminalEscapes(stdout.String())
-	for _, want := range []string{"[example:note] Results", "  Example result", "    matched text"} {
+	for _, want := range []string{"[example:note:content] Results", "  Example result", "    matched text"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("stdout %q does not contain %q", output, want)
 		}
@@ -102,9 +99,9 @@ providers {
 					ProviderID:   "configured",
 					ProviderRank: 1,
 					Hit: &searchv1.SearchHit{
-						Id:    "configured:1",
-						Selector:  "note",
-						Title: "Configured result",
+						Id:       "configured:1",
+						Selector: "note:content",
+						Title:    "Configured result",
 					},
 				}},
 			}}}, nil
@@ -118,13 +115,13 @@ providers {
 		t.Fatalf("provider count = %d, want config loaded from --config", providerCount)
 	}
 	wantPath := strings.ReplaceAll(configPath, "/", "%2F")
-	wantURL := "recall://open?column=1&kind=note&line=2&path=" + wantPath + "&source=configured&type=file&v=1"
+	wantURL := "recall://open?column=1&line=2&path=" + wantPath + "&selector=note%3Acontent&source=configured&type=file&v=1"
 	if !strings.Contains(stdout.String(), wantURL) {
 		t.Fatalf("stdout %q does not contain config source link %q", stdout.String(), wantURL)
 	}
 }
 
-func TestRunPassesKindAsRecallPostFilterOption(t *testing.T) {
+func TestRunPassesSelectorsAsRecallRoutingOption(t *testing.T) {
 	cfg := &configv1.RecallConfig{}
 	var receivedOptions orchestrator.Options
 	app := App{
@@ -140,11 +137,11 @@ func TestRunPassesKindAsRecallPostFilterOption(t *testing.T) {
 		},
 	}
 
-	if err := app.Run(context.Background(), []string{"-k", "path", "--kind", "content", "sample"}); err != nil {
+	if err := app.Run(context.Background(), []string{"-s", "code:file:name", "--selector", "notes:note:content", "sample"}); err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
-	if got := strings.Join(receivedOptions.Kinds, ","); got != "path,content" {
-		t.Fatalf("kinds = %q, want path,content", got)
+	if got := strings.Join(receivedOptions.Selectors, ","); got != "code:file:name,notes:note:content" {
+		t.Fatalf("selectors = %q, want code:file:name,notes:note:content", got)
 	}
 }
 
@@ -173,8 +170,8 @@ func TestRunAcceptsSourceFormatAndLimitShorthands(t *testing.T) {
 	if receivedQuery != "sample type:kotlin" {
 		t.Fatalf("query = %q, want provider query", receivedQuery)
 	}
-	if got := strings.Join(receivedOptions.Sources, ","); got != "code" {
-		t.Fatalf("sources = %q, want code", got)
+	if got := strings.Join(receivedOptions.Selectors, ","); got != "code" {
+		t.Fatalf("selectors = %q, want code", got)
 	}
 	if receivedOptions.Limit != 3 {
 		t.Fatalf("limit = %d, want shorthand limit", receivedOptions.Limit)
@@ -219,7 +216,7 @@ func TestRunRejectsMissingQueryBeforeLoadingConfig(t *testing.T) {
 	if err == nil {
 		t.Fatal("Run succeeded without query")
 	}
-	for _, want := range []string{"missing query", "configured in your provider registry", "recall -ls", "--source/-s selects", "--kind/-k filters", "provider operators like -in:test"} {
+	for _, want := range []string{"missing query", "configured in your provider registry", "recall -ls", "--selector/-s selects", "provider operators like -in:test"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("missing-query error = %q, want %q", err.Error(), want)
 		}
@@ -245,7 +242,7 @@ func TestRunHelpShowsExamplesAndProviderListing(t *testing.T) {
 		t.Fatalf("Run returned error: %v", err)
 	}
 	output := stdout.String()
-	for _, want := range []string{"recall searches configured personal-search providers", "code, notes, calendars", "Source vs kind:", "--source/-s selects", "--kind/-k filters", "Examples:", "recall -ls", "-s code", "-k path", "-f json", "-l 20", "--list-sources", "alias: -ls", "-g, --grouped", "default; use --grouped=false"} {
+	for _, want := range []string{"recall searches configured personal-search providers", "code, notes, calendars", "Selectors:", "--selector/-s selects", "Examples:", "recall -ls", "-s code", "code:file:name", "-f json", "-l 20", "--list-sources", "alias: -ls", "-g, --grouped", "default; use --grouped=false"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("help output %q does not contain %q", output, want)
 		}
@@ -318,6 +315,14 @@ func TestRunListsConfiguredProviders(t *testing.T) {
 			searched = true
 			return nil, nil
 		},
+		ListCapabilities: func(_ context.Context, cfg *configv1.RecallConfig) (map[string]ProviderCapabilities, error) {
+			if len(cfg.GetProviders()) != 2 {
+				t.Fatalf("provider count = %d, want 2", len(cfg.GetProviders()))
+			}
+			return map[string]ProviderCapabilities{
+				"code": {Selectors: []string{"code:file:name", "code:file:content"}},
+			}, nil
+		},
 	}
 
 	if err := app.Run(context.Background(), []string{"--config", "ignored.txtpb", "-ls"}); err != nil {
@@ -327,7 +332,7 @@ func TestRunListsConfiguredProviders(t *testing.T) {
 		t.Fatal("search runner was called for providers command")
 	}
 	output := stdout.String()
-	for _, want := range []string{"ID", "code", "enabled", "1.50", "50", "5000ms", "stdio", "recall-ripgrep-provider --root /repo/code", "remote", "disabled", "grpc", "dns:///search:443"} {
+	for _, want := range []string{"ID", "SELECTORS", "code", "enabled", "1.50", "50", "5000ms", "stdio", "recall-ripgrep-provider --root /repo/code", "code:file:name,code:file:content", "remote", "disabled", "grpc", "dns:///search:443"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("provider list output %q does not contain %q", output, want)
 		}

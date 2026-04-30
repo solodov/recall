@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -54,10 +55,10 @@ providers {
 			ProviderID string `json:"provider_id"`
 			Response   struct {
 				Hits []struct {
-					ID      string `json:"id"`
-					Kind    string `json:"kind"`
-					Title   string `json:"title"`
-					Targets []struct {
+					ID       string `json:"id"`
+					Selector string `json:"selector"`
+					Title    string `json:"title"`
+					Targets  []struct {
 						URI struct {
 							URI string `json:"uri"`
 						} `json:"uri"`
@@ -91,7 +92,7 @@ providers {
 	if len(hits) != 1 {
 		t.Fatalf("provider hit count = %d, want 1", len(hits))
 	}
-	if hits[0].ID != "example:rollout-note" || hits[0].Kind != "note" || hits[0].Title != "Sample rollout note" {
+	if hits[0].ID != "example:rollout-note" || hits[0].Selector != "note:content" || hits[0].Title != "Sample rollout note" {
 		t.Fatalf("sample provider hit did not preserve search contract fields: %#v", hits[0])
 	}
 	if len(hits[0].Targets) < 2 || hits[0].Targets[0].File.Path == "" || hits[0].Targets[1].URI.URI == "" {
@@ -105,6 +106,18 @@ providers {
 	}
 	if payload.BlendedHits[0].BlendedScore <= 0 {
 		t.Fatalf("blended score = %f, want positive", payload.BlendedHits[0].BlendedScore)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if err := app.Run(context.Background(), []string{"-ls"}); err != nil {
+		t.Fatalf("recall sample-provider list failed: %v\nstderr: %s", err, stderr.String())
+	}
+	listOutput := stdout.String()
+	for _, want := range []string{"SELECTORS", "example:note:content", "example:event:content"} {
+		if !strings.Contains(listOutput, want) {
+			t.Fatalf("provider list output %q does not contain %q", listOutput, want)
+		}
 	}
 }
 
