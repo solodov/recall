@@ -149,15 +149,13 @@ func Validate(cfg *configv1.RecallConfig) error {
 			problems = append(problems, fmt.Errorf("%s.default_limit must be positive", location))
 		}
 
-		switch transport := provider.GetTransport().(type) {
-		case *configv1.Provider_Stdio:
-			problems = append(problems, validateStdioTransport(location, transport.Stdio)...)
-		case *configv1.Provider_Grpc:
-			problems = append(problems, validateGrpcTransport(location, transport.Grpc)...)
-		case nil:
-			problems = append(problems, fmt.Errorf("%s.transport must set exactly one of stdio or grpc", location))
-		default:
-			problems = append(problems, fmt.Errorf("%s.transport has unsupported type %T", location, transport))
+		transports := provider.GetTransports()
+		if len(transports) == 0 {
+			problems = append(problems, fmt.Errorf("%s.transports must contain at least one transport", location))
+		}
+		for transportIndex, transport := range transports {
+			transportLocation := fmt.Sprintf("%s.transports[%d]", location, transportIndex)
+			problems = append(problems, validateTransport(transportLocation, transport)...)
 		}
 	}
 
@@ -312,6 +310,23 @@ func isTextprotoIdentStart(char byte) bool {
 
 func isTextprotoIdentPart(char byte) bool {
 	return isTextprotoIdentStart(char) || (char >= '0' && char <= '9')
+}
+
+func validateTransport(location string, transport *configv1.Transport) []error {
+	if transport == nil {
+		return []error{fmt.Errorf("%s is nil", location)}
+	}
+
+	switch transport := transport.GetTransport().(type) {
+	case *configv1.Transport_Stdio:
+		return validateStdioTransport(location, transport.Stdio)
+	case *configv1.Transport_Grpc:
+		return validateGrpcTransport(location, transport.Grpc)
+	case nil:
+		return []error{fmt.Errorf("%s must set exactly one of stdio or grpc", location)}
+	default:
+		return []error{fmt.Errorf("%s has unsupported type %T", location, transport)}
+	}
 }
 
 func validateStdioTransport(location string, transport *configv1.StdioTransport) []error {

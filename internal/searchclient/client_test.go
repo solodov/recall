@@ -2,6 +2,8 @@ package searchclient
 
 import (
 	"context"
+	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +15,8 @@ import (
 	searchv1 "github.com/solodov/recall/proto/recall/search/v1"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -50,9 +54,9 @@ func TestStdioClientSearchUsesTypedSearchPath(t *testing.T) {
 
 func TestNewProviderClientCreatesTransportSpecificClients(t *testing.T) {
 	stdioProvider := &configv1.Provider{
-		Id:        "example",
-		TimeoutMs: 1500,
-		Transport: &configv1.Provider_Stdio{Stdio: &configv1.StdioTransport{Command: os.Args[0]}},
+		Id:         "example",
+		TimeoutMs:  1500,
+		Transports: []*configv1.Transport{stdioTransport(&configv1.StdioTransport{Command: os.Args[0]})},
 	}
 
 	stdioClient, err := NewProviderClient(stdioProvider, ProviderClientOptions{})
@@ -63,17 +67,93 @@ func TestNewProviderClientCreatesTransportSpecificClients(t *testing.T) {
 		t.Fatalf("stdio provider client has type %T, want *StdioClient", stdioClient)
 	}
 
+	listener := bufconn.Listen(1024 * 1024)
+	server := grpc.NewServer()
+	defer server.Stop()
+	go func() { _ = server.Serve(listener) }()
 	grpcProvider := &configv1.Provider{
-		Id:        "remote",
-		TimeoutMs: 1500,
-		Transport: &configv1.Provider_Grpc{Grpc: &configv1.GrpcTransport{Endpoint: "passthrough:///remote"}},
+		Id:         "remote",
+		TimeoutMs:  1500,
+		Transports: []*configv1.Transport{grpcTransport("passthrough:///remote")},
 	}
-	grpcClient, err := NewProviderClient(grpcProvider, ProviderClientOptions{GRPCDialOptions: []grpc.DialOption{grpc.WithContextDialer(nil)}})
-	if err == nil {
-		if closer, ok := grpcClient.(*GRPCClient); ok {
-			_ = closer.Close()
-		}
-		return
+	grpcClient, err := NewProviderClient(grpcProvider, ProviderClientOptions{GRPCDialOptions: []grpc.DialOption{
+		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+			return listener.DialContext(ctx)
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	}})
+	if err != nil {
+		t.Fatalf("NewProviderClient(grpc) returned error: %v", err)
+	}
+	if _, ok := grpcClient.(*GRPCClient); !ok {
+		t.Fatalf("grpc provider client has type %T, want *GRPCClient", grpcClient)
+	}
+	if closer, ok := grpcClient.(*GRPCClient); ok {
+		_ = closer.Close()
+	}
+}
+
+func TestNewProviderClientFallsBackAfterGRPCDialFailure(t *testing.T) {
+	dialAttempts := 0
+	provider := &configv1.Provider{
+		Id:        "fallback",
+		TimeoutMs: 50,
+		Transports: []*configv1.Transport{
+			grpcTransport("passthrough:///missing"),
+			stdioTransport(&configv1.StdioTransport{Command: os.Args[0]}),
+		},
+	}
+
+	client, err := NewProviderClient(provider, ProviderClientOptions{GRPCDialOptions: []grpc.DialOption{
+		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
+			dialAttempts++
+			return nil, errors.New("dial failed")
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	}})
+	if err != nil {
+		t.Fatalf("NewProviderClient returned error: %v", err)
+	}
+	if dialAttempts == 0 {
+		t.Fatal("gRPC fallback transport was not dialed")
+	}
+	if _, ok := client.(*StdioClient); !ok {
+		t.Fatalf("fallback client has type %T, want *StdioClient", client)
+	}
+}
+
+func TestNewProviderClientFallsBackAfterStdioDialFailure(t *testing.T) {
+	provider := &configv1.Provider{
+		Id:        "fallback",
+		TimeoutMs: 50,
+		Transports: []*configv1.Transport{
+			stdioTransport(&configv1.StdioTransport{Command: filepath.Join(t.TempDir(), "missing-provider")}),
+			stdioTransport(&configv1.StdioTransport{Command: os.Args[0]}),
+		},
+	}
+
+	client, err := NewProviderClient(provider, ProviderClientOptions{})
+	if err != nil {
+		t.Fatalf("NewProviderClient returned error: %v", err)
+	}
+	if _, ok := client.(*StdioClient); !ok {
+		t.Fatalf("fallback client has type %T, want *StdioClient", client)
+	}
+}
+
+func TestNewProviderClientDoesNotFallbackAfterInvalidTransport(t *testing.T) {
+	provider := &configv1.Provider{
+		Id:        "invalid",
+		TimeoutMs: 50,
+		Transports: []*configv1.Transport{
+			grpcTransport(""),
+			stdioTransport(&configv1.StdioTransport{Command: os.Args[0]}),
+		},
+	}
+
+	_, err := NewProviderClient(provider, ProviderClientOptions{})
+	if err == nil || !strings.Contains(err.Error(), "grpc endpoint is required") {
+		t.Fatalf("NewProviderClient error = %v, want invalid grpc endpoint", err)
 	}
 }
 
@@ -134,6 +214,14 @@ func helperTransport(logPath string) *configv1.StdioTransport {
 			"RECALL_SEARCHCLIENT_HELPER_LOG": logPath,
 		},
 	}
+}
+
+func stdioTransport(transport *configv1.StdioTransport) *configv1.Transport {
+	return &configv1.Transport{Transport: &configv1.Transport_Stdio{Stdio: transport}}
+}
+
+func grpcTransport(endpoint string) *configv1.Transport {
+	return &configv1.Transport{Transport: &configv1.Transport_Grpc{Grpc: &configv1.GrpcTransport{Endpoint: endpoint}}}
 }
 
 func readHelperLog(t *testing.T, path string) string {

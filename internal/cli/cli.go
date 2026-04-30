@@ -350,7 +350,7 @@ func renderProviders(writer io.Writer, cfg *configv1.RecallConfig) error {
 	}
 
 	tabWriter := tabwriter.NewWriter(writer, 0, 0, 2, ' ', 0)
-	if _, err := fmt.Fprintln(tabWriter, "ID\tSTATUS\tWEIGHT\tLIMIT\tTIMEOUT\tTRANSPORT\tTARGET"); err != nil {
+	if _, err := fmt.Fprintln(tabWriter, "ID\tSTATUS\tWEIGHT\tLIMIT\tTIMEOUT\tTRANSPORTS\tTARGETS"); err != nil {
 		return err
 	}
 	for _, provider := range cfg.GetProviders() {
@@ -370,10 +370,30 @@ func renderProviders(writer io.Writer, cfg *configv1.RecallConfig) error {
 }
 
 func providerTransport(provider *configv1.Provider) (string, string) {
-	switch transport := provider.GetTransport().(type) {
-	case *configv1.Provider_Stdio:
+	if provider == nil || len(provider.GetTransports()) == 0 {
+		return "unknown", ""
+	}
+
+	names := make([]string, 0, len(provider.GetTransports()))
+	targets := make([]string, 0, len(provider.GetTransports()))
+	for _, transport := range provider.GetTransports() {
+		name, target := transportSummary(transport)
+		names = append(names, name)
+		if target != "" {
+			targets = append(targets, target)
+		}
+	}
+	return strings.Join(names, ","), strings.Join(targets, " -> ")
+}
+
+func transportSummary(transport *configv1.Transport) (string, string) {
+	if transport == nil {
+		return "unknown", ""
+	}
+	switch transport := transport.GetTransport().(type) {
+	case *configv1.Transport_Stdio:
 		return "stdio", commandLine(transport.Stdio.GetCommand(), transport.Stdio.GetArgs())
-	case *configv1.Provider_Grpc:
+	case *configv1.Transport_Grpc:
 		return "grpc", transport.Grpc.GetEndpoint()
 	default:
 		return "unknown", ""

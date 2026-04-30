@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	searchv1 "github.com/solodov/recall/proto/recall/search/v1"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
@@ -21,6 +23,8 @@ const (
 	SearchService    = searchv1.SearchProviderService
 	SearchMethod     = searchv1.SearchProviderSearchMethod
 	SearchFullMethod = searchv1.SearchProviderSearchPath
+
+	defaultGRPCDialTimeout = 5 * time.Second
 )
 
 // Client is the transport-independent boundary used by recall's orchestrator.
@@ -34,22 +38,60 @@ type ProviderClientOptions struct {
 	GRPCDialOptions []grpc.DialOption
 }
 
+var errTransportDial = errors.New("transport dial failed")
+
 // NewProviderClient binds one provider registry entry to the typed search
-// client expected by recall's orchestrator.
+// client expected by recall's orchestrator. Transports are tried in config
+// order, and only dial failures fall through to the next transport.
 func NewProviderClient(provider *configv1.Provider, options ProviderClientOptions) (Client, error) {
 	if provider == nil {
 		return nil, errors.New("provider is nil")
 	}
+	if len(provider.GetTransports()) == 0 {
+		return nil, fmt.Errorf("provider %q has no transports", provider.GetId())
+	}
+
 	timeout := time.Duration(provider.GetTimeoutMs()) * time.Millisecond
-	switch transport := provider.GetTransport().(type) {
-	case *configv1.Provider_Stdio:
-		return NewStdioClient(provider.GetId(), transport.Stdio, timeout)
-	case *configv1.Provider_Grpc:
-		return NewGRPCClient(transport.Grpc.GetEndpoint(), timeout, options.GRPCDialOptions...)
+	dialFailures := []error{}
+	for index, transport := range provider.GetTransports() {
+		client, err := newTransportClient(provider.GetId(), index, transport, timeout, options)
+		if err == nil {
+			return client, nil
+		}
+		if errors.Is(err, errTransportDial) {
+			dialFailures = append(dialFailures, err)
+			continue
+		}
+		return nil, err
+	}
+
+	return nil, fmt.Errorf("provider %q: no transports could be dialed: %w", provider.GetId(), errors.Join(dialFailures...))
+}
+
+// newTransportClient creates a client for one configured transport entry.
+func newTransportClient(providerID string, index int, transport *configv1.Transport, timeout time.Duration, options ProviderClientOptions) (Client, error) {
+	location := fmt.Sprintf("provider %q transports[%d]", providerID, index)
+	if transport == nil {
+		return nil, fmt.Errorf("%s is nil", location)
+	}
+
+	switch transport := transport.GetTransport().(type) {
+	case *configv1.Transport_Stdio:
+		client, err := NewStdioClient(providerID, transport.Stdio, timeout)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", location, err)
+		}
+		return client, nil
+	case *configv1.Transport_Grpc:
+		client, err := NewGRPCClient(transport.Grpc.GetEndpoint(), timeout, options.GRPCDialOptions...)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", location, err)
+		}
+		return client, nil
 	case nil:
-		return nil, fmt.Errorf("provider %q has no transport", provider.GetId())
+		return nil, fmt.Errorf("%s must set exactly one of stdio or grpc", location)
 	default:
-		return nil, fmt.Errorf("provider %q has unsupported transport %T", provider.GetId(), transport)
+		return nil, fmt.Errorf("%s has unsupported transport %T", location, transport)
 	}
 }
 
@@ -60,8 +102,8 @@ type StdioClient struct {
 	timeout    time.Duration
 }
 
-// NewStdioClient creates a typed search client backed by the generic stdio RPC
-// runner.
+// NewStdioClient creates a typed search client after checking that the stdio
+// command can be resolved by this process.
 func NewStdioClient(providerID string, transport *configv1.StdioTransport, timeout time.Duration) (*StdioClient, error) {
 	if strings.TrimSpace(providerID) == "" {
 		return nil, errors.New("provider id is required")
@@ -69,8 +111,12 @@ func NewStdioClient(providerID string, transport *configv1.StdioTransport, timeo
 	if transport == nil {
 		return nil, fmt.Errorf("provider %q stdio transport is nil", providerID)
 	}
-	if strings.TrimSpace(transport.GetCommand()) == "" {
+	command := transport.GetCommand()
+	if strings.TrimSpace(command) == "" {
 		return nil, fmt.Errorf("provider %q stdio command is required", providerID)
+	}
+	if _, err := exec.LookPath(command); err != nil {
+		return nil, fmt.Errorf("%w: provider %q stdio command %q: %w", errTransportDial, providerID, command, err)
 	}
 	return &StdioClient{
 		providerID: providerID,
@@ -106,9 +152,10 @@ type GRPCClient struct {
 	close    func() error
 }
 
-// NewGRPCClient creates a typed search client for providers reachable over
-// gRPC. The current config schema has no TLS fields, so the default transport
-// credentials are intentionally local/insecure until config grows that policy.
+// NewGRPCClient creates a typed search client after establishing gRPC
+// connectivity. The current config schema has no TLS fields, so the default
+// transport credentials are intentionally local/insecure until config grows
+// that policy.
 func NewGRPCClient(endpoint string, timeout time.Duration, dialOptions ...grpc.DialOption) (*GRPCClient, error) {
 	if strings.TrimSpace(endpoint) == "" {
 		return nil, errors.New("grpc endpoint is required")
@@ -120,12 +167,47 @@ func NewGRPCClient(endpoint string, timeout time.Duration, dialOptions ...grpc.D
 	if err != nil {
 		return nil, fmt.Errorf("create grpc client for %q: %w", endpoint, err)
 	}
+	if err := dialGRPCConnection(context.Background(), conn, timeout); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("%w: dial grpc endpoint %q: %w", errTransportDial, endpoint, err)
+	}
 	return &GRPCClient{
 		endpoint: endpoint,
 		timeout:  timeout,
 		invoker:  conn,
 		close:    conn.Close,
 	}, nil
+}
+
+// dialGRPCConnection waits until gRPC reports a usable connection, so provider
+// fallback only advances when this transport cannot be reached.
+func dialGRPCConnection(ctx context.Context, conn *grpc.ClientConn, timeout time.Duration) error {
+	if timeout <= 0 {
+		timeout = defaultGRPCDialTimeout
+	}
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	for {
+		state := conn.GetState()
+		switch state {
+		case connectivity.Ready:
+			return nil
+		case connectivity.Idle:
+			conn.Connect()
+		case connectivity.TransientFailure:
+			return fmt.Errorf("connection entered %s", state)
+		case connectivity.Shutdown:
+			return errors.New("connection shut down")
+		}
+		if !conn.WaitForStateChange(ctx, state) {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			return fmt.Errorf("connection remained %s", state)
+		}
+	}
 }
 
 // Search invokes the fully-qualified SearchProvider.Search method with the

@@ -26,8 +26,10 @@ providers {
   weight: 1.0
   timeout_ms: 5000
   default_limit: 10
-  stdio {
-    command: "` + providerBinary + `"
+  transports {
+    stdio {
+      command: "` + providerBinary + `"
+    }
   }
 }
 `

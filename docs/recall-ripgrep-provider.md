@@ -4,7 +4,7 @@
 
 ## Registry entry
 
-Configure it as a stdio provider. Use one or more `--root` arguments to choose files or directories to search:
+Configure it with a stdio transport. Use one or more `--root` arguments to choose files or directories to search:
 
 ```textproto
 providers {
@@ -13,10 +13,12 @@ providers {
   weight: 1.0
   timeout_ms: 5000
   default_limit: 50
-  stdio {
-    command: "recall-ripgrep-provider"
-    args: "--root"
-    args: "/path/to/repo"
+  transports {
+    stdio {
+      command: "recall-ripgrep-provider"
+      args: "--root"
+      args: "/path/to/repo"
+    }
   }
 }
 ```

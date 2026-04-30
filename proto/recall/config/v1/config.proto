@@ -25,11 +25,10 @@ message Provider {
   // Whether recall should include this provider in normal query fan-out.
   bool enabled = 2;
 
-  // Exactly one transport must be configured.
-  oneof transport {
-    StdioTransport stdio = 10;
-    GrpcTransport grpc = 11;
-  }
+  // Transports are tried in order until one can be reached.
+  repeated Transport transports = 12;
+
+  reserved 10, 11;
 
   // Cross-provider ranking weight. Must be positive.
   double weight = 20;
@@ -65,6 +64,17 @@ message Opener {
   // Static command arguments with placeholders such as {path}, {uri}, {line},
   // and {column} expanded by recall-open.
   repeated string args = 11;
+}
+
+// Transport describes one way to reach a provider. The first transport that
+// can be reached handles provider calls; later transports are only fallbacks
+// for earlier dial failures.
+message Transport {
+  // Exactly one transport kind must be configured.
+  oneof transport {
+    StdioTransport stdio = 1;
+    GrpcTransport grpc = 2;
+  }
 }
 
 // StdioTransport starts a provider process for one unary RPC call over stdin

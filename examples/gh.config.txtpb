@@ -6,7 +6,9 @@ providers {
   weight: 1.0
   timeout_ms: 8000
   default_limit: 30
-  stdio {
-    command: "recall-gh-provider"
+  transports {
+    stdio {
+      command: "recall-gh-provider"
+    }
   }
 }

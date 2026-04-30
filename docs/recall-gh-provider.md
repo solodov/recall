@@ -6,7 +6,7 @@ The provider is intentionally opt-in per query: when recall sends no `kind_hints
 
 ## Registry entry
 
-Configure it as a stdio provider:
+Configure it with a stdio transport:
 
 ```textproto
 providers {
@@ -15,8 +15,10 @@ providers {
   weight: 1.0
   timeout_ms: 8000
   default_limit: 30
-  stdio {
-    command: "recall-gh-provider"
+  transports {
+    stdio {
+      command: "recall-gh-provider"
+    }
   }
 }
 ```
@@ -24,12 +26,14 @@ providers {
 By default, the provider supports all domains: `code`, `commit`, `issue`, `pr`, and `repo`. Use repeatable `--domain` args to restrict which GitHub domains this configured source can search:
 
 ```textproto
-stdio {
-  command: "recall-gh-provider"
-  args: "--domain"
-  args: "issue"
-  args: "--domain"
-  args: "pr"
+transports {
+  stdio {
+    command: "recall-gh-provider"
+    args: "--domain"
+    args: "issue"
+    args: "--domain"
+    args: "pr"
+  }
 }
 ```
 

@@ -48,12 +48,14 @@ providers {
   weight: 1.0
   timeout_ms: 1500
   default_limit: 30
-  stdio {
-    command: "recall-example-provider"
-    args: "--fixture"
-    env {
-      key: "RECALL_EXAMPLE_FIXTURE"
-      value: "builtin"
+  transports {
+    stdio {
+      command: "recall-example-provider"
+      args: "--fixture"
+      env {
+        key: "RECALL_EXAMPLE_FIXTURE"
+        value: "builtin"
+      }
     }
   }
 }
@@ -63,8 +65,10 @@ providers {
   weight: 1.0
   timeout_ms: 2500
   default_limit: 30
-  grpc {
-    endpoint: "dns:///source-search.internal:443"
+  transports {
+    grpc {
+      endpoint: "dns:///source-search.internal:443"
+    }
   }
 }
 openers {
@@ -90,10 +94,10 @@ openers {
 	if len(providers) != 2 {
 		t.Fatalf("provider count = %d, want 2", len(providers))
 	}
-	if providers[0].GetId() != "example" || providers[0].GetStdio().GetCommand() != "recall-example-provider" {
+	if providers[0].GetId() != "example" || providers[0].GetTransports()[0].GetStdio().GetCommand() != "recall-example-provider" {
 		t.Fatalf("first provider did not round trip as stdio example: %#v", providers[0])
 	}
-	if providers[1].GetId() != "remote-source" || providers[1].GetGrpc().GetEndpoint() != "dns:///source-search.internal:443" {
+	if providers[1].GetId() != "remote-source" || providers[1].GetTransports()[0].GetGrpc().GetEndpoint() != "dns:///source-search.internal:443" {
 		t.Fatalf("second provider did not round trip as grpc remote-source: %#v", providers[1])
 	}
 	if len(cfg.GetOpeners()) != 1 || cfg.GetOpeners()[0].GetId() != "code-editor" || cfg.GetOpeners()[0].GetCommand() != "editor" {
@@ -111,7 +115,7 @@ func TestLoadFileWithLocationsRecordsProviderBlockLines(t *testing.T) {
 		"  weight: 1.0",
 		"  timeout_ms: 1500",
 		"  default_limit: 30",
-		`  stdio { command: "provider" }`,
+		`  transports { stdio { command: "provider" } }`,
 		"}",
 		"",
 		"providers {",
@@ -120,7 +124,7 @@ func TestLoadFileWithLocationsRecordsProviderBlockLines(t *testing.T) {
 		"  weight: 1.0",
 		"  timeout_ms: 2500",
 		"  default_limit: 30",
-		`  grpc { endpoint: "dns:///source-search.internal:443" }`,
+		`  transports { grpc { endpoint: "dns:///source-search.internal:443" } }`,
 		"}",
 	}
 	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o600); err != nil {
@@ -152,7 +156,7 @@ providers {
   weight: 1.0
   timeout_ms: 1500
   default_limit: 30
-  stdio { command: "recall-example-provider" }
+  transports { stdio { command: "recall-example-provider" } }
 }
 `
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
@@ -193,12 +197,18 @@ func TestValidateRejectsInvalidProviderConfig(t *testing.T) {
 				Weight:       0,
 				TimeoutMs:    0,
 				DefaultLimit: 0,
-				Transport: &configv1.Provider_Stdio{Stdio: &configv1.StdioTransport{
-					Command: "",
-					Env: map[string]string{
-						"bad-env": "value",
+				Transports: []*configv1.Transport{
+					{
+						Transport: &configv1.Transport_Stdio{
+							Stdio: &configv1.StdioTransport{
+								Command: "",
+								Env: map[string]string{
+									"bad-env": "value",
+								},
+							},
+						},
 					},
-				}},
+				},
 			},
 		},
 	}
@@ -213,7 +223,7 @@ func TestValidateRejectsInvalidProviderConfig(t *testing.T) {
 		"providers[0].weight",
 		"providers[0].timeout_ms",
 		"providers[0].default_limit",
-		"providers[0].stdio.command",
+		"providers[0].transports[0].stdio.command",
 		"bad-env",
 	} {
 		if !strings.Contains(message, want) {

@@ -225,6 +225,8 @@ func provider(id string, enabled bool, limit uint32) *configv1.Provider {
 		Weight:       1,
 		TimeoutMs:    1500,
 		DefaultLimit: limit,
-		Transport:    &configv1.Provider_Stdio{Stdio: &configv1.StdioTransport{Command: "provider-" + id}},
+		Transports: []*configv1.Transport{{Transport: &configv1.Transport_Stdio{Stdio: &configv1.StdioTransport{
+			Command: "provider-" + id,
+		}}}},
 	}
 }

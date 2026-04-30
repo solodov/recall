@@ -17,8 +17,10 @@ providers {
   weight: 1.0
   timeout_ms: 1500
   default_limit: 10
-  stdio {
-    command: "${repo_root}/dist/recall-example-provider"
+  transports {
+    stdio {
+      command: "${repo_root}/dist/recall-example-provider"
+    }
   }
 }
 EOF

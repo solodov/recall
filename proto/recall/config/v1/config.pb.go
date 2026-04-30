@@ -88,13 +88,8 @@ type Provider struct {
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// Whether recall should include this provider in normal query fan-out.
 	Enabled bool `protobuf:"varint,2,opt,name=enabled,proto3" json:"enabled,omitempty"`
-	// Exactly one transport must be configured.
-	//
-	// Types that are valid to be assigned to Transport:
-	//
-	//	*Provider_Stdio
-	//	*Provider_Grpc
-	Transport isProvider_Transport `protobuf_oneof:"transport"`
+	// Transports are tried in order until one can be reached.
+	Transports []*Transport `protobuf:"bytes,12,rep,name=transports,proto3" json:"transports,omitempty"`
 	// Cross-provider ranking weight. Must be positive.
 	Weight float64 `protobuf:"fixed64,20,opt,name=weight,proto3" json:"weight,omitempty"`
 	// Provider call timeout in milliseconds. Must be positive.
@@ -149,27 +144,9 @@ func (x *Provider) GetEnabled() bool {
 	return false
 }
 
-func (x *Provider) GetTransport() isProvider_Transport {
+func (x *Provider) GetTransports() []*Transport {
 	if x != nil {
-		return x.Transport
-	}
-	return nil
-}
-
-func (x *Provider) GetStdio() *StdioTransport {
-	if x != nil {
-		if x, ok := x.Transport.(*Provider_Stdio); ok {
-			return x.Stdio
-		}
-	}
-	return nil
-}
-
-func (x *Provider) GetGrpc() *GrpcTransport {
-	if x != nil {
-		if x, ok := x.Transport.(*Provider_Grpc); ok {
-			return x.Grpc
-		}
+		return x.Transports
 	}
 	return nil
 }
@@ -194,22 +171,6 @@ func (x *Provider) GetDefaultLimit() uint32 {
 	}
 	return 0
 }
-
-type isProvider_Transport interface {
-	isProvider_Transport()
-}
-
-type Provider_Stdio struct {
-	Stdio *StdioTransport `protobuf:"bytes,10,opt,name=stdio,proto3,oneof"`
-}
-
-type Provider_Grpc struct {
-	Grpc *GrpcTransport `protobuf:"bytes,11,opt,name=grpc,proto3,oneof"`
-}
-
-func (*Provider_Stdio) isProvider_Transport() {}
-
-func (*Provider_Grpc) isProvider_Transport() {}
 
 // Opener maps clicked recall:// targets to local commands. Empty filter lists
 // match every target for that dimension.
@@ -313,6 +274,93 @@ func (x *Opener) GetArgs() []string {
 	return nil
 }
 
+// Transport describes one way to reach a provider. The first transport that
+// can be reached handles provider calls; later transports are only fallbacks
+// for earlier dial failures.
+type Transport struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Exactly one transport kind must be configured.
+	//
+	// Types that are valid to be assigned to Transport:
+	//
+	//	*Transport_Stdio
+	//	*Transport_Grpc
+	Transport     isTransport_Transport `protobuf_oneof:"transport"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Transport) Reset() {
+	*x = Transport{}
+	mi := &file_proto_recall_config_v1_config_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Transport) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Transport) ProtoMessage() {}
+
+func (x *Transport) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_recall_config_v1_config_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Transport.ProtoReflect.Descriptor instead.
+func (*Transport) Descriptor() ([]byte, []int) {
+	return file_proto_recall_config_v1_config_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *Transport) GetTransport() isTransport_Transport {
+	if x != nil {
+		return x.Transport
+	}
+	return nil
+}
+
+func (x *Transport) GetStdio() *StdioTransport {
+	if x != nil {
+		if x, ok := x.Transport.(*Transport_Stdio); ok {
+			return x.Stdio
+		}
+	}
+	return nil
+}
+
+func (x *Transport) GetGrpc() *GrpcTransport {
+	if x != nil {
+		if x, ok := x.Transport.(*Transport_Grpc); ok {
+			return x.Grpc
+		}
+	}
+	return nil
+}
+
+type isTransport_Transport interface {
+	isTransport_Transport()
+}
+
+type Transport_Stdio struct {
+	Stdio *StdioTransport `protobuf:"bytes,1,opt,name=stdio,proto3,oneof"`
+}
+
+type Transport_Grpc struct {
+	Grpc *GrpcTransport `protobuf:"bytes,2,opt,name=grpc,proto3,oneof"`
+}
+
+func (*Transport_Stdio) isTransport_Transport() {}
+
+func (*Transport_Grpc) isTransport_Transport() {}
+
 // StdioTransport starts a provider process for one unary RPC call over stdin
 // and stdout.
 type StdioTransport struct {
@@ -329,7 +377,7 @@ type StdioTransport struct {
 
 func (x *StdioTransport) Reset() {
 	*x = StdioTransport{}
-	mi := &file_proto_recall_config_v1_config_proto_msgTypes[3]
+	mi := &file_proto_recall_config_v1_config_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -341,7 +389,7 @@ func (x *StdioTransport) String() string {
 func (*StdioTransport) ProtoMessage() {}
 
 func (x *StdioTransport) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_recall_config_v1_config_proto_msgTypes[3]
+	mi := &file_proto_recall_config_v1_config_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -354,7 +402,7 @@ func (x *StdioTransport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StdioTransport.ProtoReflect.Descriptor instead.
 func (*StdioTransport) Descriptor() ([]byte, []int) {
-	return file_proto_recall_config_v1_config_proto_rawDescGZIP(), []int{3}
+	return file_proto_recall_config_v1_config_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *StdioTransport) GetCommand() string {
@@ -390,7 +438,7 @@ type GrpcTransport struct {
 
 func (x *GrpcTransport) Reset() {
 	*x = GrpcTransport{}
-	mi := &file_proto_recall_config_v1_config_proto_msgTypes[4]
+	mi := &file_proto_recall_config_v1_config_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -402,7 +450,7 @@ func (x *GrpcTransport) String() string {
 func (*GrpcTransport) ProtoMessage() {}
 
 func (x *GrpcTransport) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_recall_config_v1_config_proto_msgTypes[4]
+	mi := &file_proto_recall_config_v1_config_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -415,7 +463,7 @@ func (x *GrpcTransport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GrpcTransport.ProtoReflect.Descriptor instead.
 func (*GrpcTransport) Descriptor() ([]byte, []int) {
-	return file_proto_recall_config_v1_config_proto_rawDescGZIP(), []int{4}
+	return file_proto_recall_config_v1_config_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *GrpcTransport) GetEndpoint() string {
@@ -432,18 +480,18 @@ const file_proto_recall_config_v1_config_proto_rawDesc = "" +
 	"#proto/recall/config/v1/config.proto\x12\x10recall.config.v1\"|\n" +
 	"\fRecallConfig\x128\n" +
 	"\tproviders\x18\x01 \x03(\v2\x1a.recall.config.v1.ProviderR\tproviders\x122\n" +
-	"\aopeners\x18\x02 \x03(\v2\x18.recall.config.v1.OpenerR\aopeners\"\x8e\x02\n" +
+	"\aopeners\x18\x02 \x03(\v2\x18.recall.config.v1.OpenerR\aopeners\"\xd9\x01\n" +
 	"\bProvider\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
-	"\aenabled\x18\x02 \x01(\bR\aenabled\x128\n" +
-	"\x05stdio\x18\n" +
-	" \x01(\v2 .recall.config.v1.StdioTransportH\x00R\x05stdio\x125\n" +
-	"\x04grpc\x18\v \x01(\v2\x1f.recall.config.v1.GrpcTransportH\x00R\x04grpc\x12\x16\n" +
+	"\aenabled\x18\x02 \x01(\bR\aenabled\x12;\n" +
+	"\n" +
+	"transports\x18\f \x03(\v2\x1b.recall.config.v1.TransportR\n" +
+	"transports\x12\x16\n" +
 	"\x06weight\x18\x14 \x01(\x01R\x06weight\x12\x1d\n" +
 	"\n" +
 	"timeout_ms\x18\x15 \x01(\rR\ttimeoutMs\x12#\n" +
-	"\rdefault_limit\x18\x16 \x01(\rR\fdefaultLimitB\v\n" +
-	"\ttransport\"\xba\x01\n" +
+	"\rdefault_limit\x18\x16 \x01(\rR\fdefaultLimitJ\x04\b\n" +
+	"\x10\vJ\x04\b\v\x10\f\"\xba\x01\n" +
 	"\x06Opener\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\asources\x18\x02 \x03(\tR\asources\x12\x14\n" +
@@ -453,7 +501,11 @@ const file_proto_recall_config_v1_config_proto_rawDesc = "" +
 	"uriSchemes\x12\x18\n" +
 	"\acommand\x18\n" +
 	" \x01(\tR\acommand\x12\x12\n" +
-	"\x04args\x18\v \x03(\tR\x04args\"\xb3\x01\n" +
+	"\x04args\x18\v \x03(\tR\x04args\"\x89\x01\n" +
+	"\tTransport\x128\n" +
+	"\x05stdio\x18\x01 \x01(\v2 .recall.config.v1.StdioTransportH\x00R\x05stdio\x125\n" +
+	"\x04grpc\x18\x02 \x01(\v2\x1f.recall.config.v1.GrpcTransportH\x00R\x04grpcB\v\n" +
+	"\ttransport\"\xb3\x01\n" +
 	"\x0eStdioTransport\x12\x18\n" +
 	"\acommand\x18\x01 \x01(\tR\acommand\x12\x12\n" +
 	"\x04args\x18\x02 \x03(\tR\x04args\x12;\n" +
@@ -476,26 +528,28 @@ func file_proto_recall_config_v1_config_proto_rawDescGZIP() []byte {
 	return file_proto_recall_config_v1_config_proto_rawDescData
 }
 
-var file_proto_recall_config_v1_config_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_proto_recall_config_v1_config_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_proto_recall_config_v1_config_proto_goTypes = []any{
 	(*RecallConfig)(nil),   // 0: recall.config.v1.RecallConfig
 	(*Provider)(nil),       // 1: recall.config.v1.Provider
 	(*Opener)(nil),         // 2: recall.config.v1.Opener
-	(*StdioTransport)(nil), // 3: recall.config.v1.StdioTransport
-	(*GrpcTransport)(nil),  // 4: recall.config.v1.GrpcTransport
-	nil,                    // 5: recall.config.v1.StdioTransport.EnvEntry
+	(*Transport)(nil),      // 3: recall.config.v1.Transport
+	(*StdioTransport)(nil), // 4: recall.config.v1.StdioTransport
+	(*GrpcTransport)(nil),  // 5: recall.config.v1.GrpcTransport
+	nil,                    // 6: recall.config.v1.StdioTransport.EnvEntry
 }
 var file_proto_recall_config_v1_config_proto_depIdxs = []int32{
 	1, // 0: recall.config.v1.RecallConfig.providers:type_name -> recall.config.v1.Provider
 	2, // 1: recall.config.v1.RecallConfig.openers:type_name -> recall.config.v1.Opener
-	3, // 2: recall.config.v1.Provider.stdio:type_name -> recall.config.v1.StdioTransport
-	4, // 3: recall.config.v1.Provider.grpc:type_name -> recall.config.v1.GrpcTransport
-	5, // 4: recall.config.v1.StdioTransport.env:type_name -> recall.config.v1.StdioTransport.EnvEntry
-	5, // [5:5] is the sub-list for method output_type
-	5, // [5:5] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	3, // 2: recall.config.v1.Provider.transports:type_name -> recall.config.v1.Transport
+	4, // 3: recall.config.v1.Transport.stdio:type_name -> recall.config.v1.StdioTransport
+	5, // 4: recall.config.v1.Transport.grpc:type_name -> recall.config.v1.GrpcTransport
+	6, // 5: recall.config.v1.StdioTransport.env:type_name -> recall.config.v1.StdioTransport.EnvEntry
+	6, // [6:6] is the sub-list for method output_type
+	6, // [6:6] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_proto_recall_config_v1_config_proto_init() }
@@ -503,9 +557,9 @@ func file_proto_recall_config_v1_config_proto_init() {
 	if File_proto_recall_config_v1_config_proto != nil {
 		return
 	}
-	file_proto_recall_config_v1_config_proto_msgTypes[1].OneofWrappers = []any{
-		(*Provider_Stdio)(nil),
-		(*Provider_Grpc)(nil),
+	file_proto_recall_config_v1_config_proto_msgTypes[3].OneofWrappers = []any{
+		(*Transport_Stdio)(nil),
+		(*Transport_Grpc)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -513,7 +567,7 @@ func file_proto_recall_config_v1_config_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_recall_config_v1_config_proto_rawDesc), len(file_proto_recall_config_v1_config_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

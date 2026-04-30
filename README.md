@@ -126,7 +126,7 @@ Because stdin is textproto, stdout is a textproto `SearchResponse`.
 
 The default registry path is `$XDG_CONFIG_HOME/recall/config.txtpb`, falling back to `$HOME/.config/recall/config.txtpb`. You can pass a registry explicitly with `--config PATH`.
 
-A stdio provider entry declares process execution only:
+A provider entry lists one or more transports in preference order:
 
 ```textproto
 providers {
@@ -135,8 +135,10 @@ providers {
   weight: 1.0
   timeout_ms: 1500
   default_limit: 10
-  stdio {
-    command: "recall-example-provider"
+  transports {
+    stdio {
+      command: "recall-example-provider"
+    }
   }
 }
 ```

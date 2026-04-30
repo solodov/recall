@@ -83,7 +83,7 @@ providers {
   weight: 1.0
   timeout_ms: 1500
   default_limit: 10
-  stdio { command: "provider" }
+  transports { stdio { command: "provider" } }
 }
 `), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
@@ -293,10 +293,16 @@ func TestRunListsConfiguredProviders(t *testing.T) {
 					Weight:       1.5,
 					TimeoutMs:    5000,
 					DefaultLimit: 50,
-					Transport: &configv1.Provider_Stdio{Stdio: &configv1.StdioTransport{
-						Command: "recall-ripgrep-provider",
-						Args:    []string{"--root", "/repo/code"},
-					}},
+					Transports: []*configv1.Transport{
+						{
+							Transport: &configv1.Transport_Stdio{
+								Stdio: &configv1.StdioTransport{
+									Command: "recall-ripgrep-provider",
+									Args:    []string{"--root", "/repo/code"},
+								},
+							},
+						},
+					},
 				},
 				{
 					Id:           "remote",
@@ -304,7 +310,7 @@ func TestRunListsConfiguredProviders(t *testing.T) {
 					Weight:       1,
 					TimeoutMs:    1000,
 					DefaultLimit: 10,
-					Transport:    &configv1.Provider_Grpc{Grpc: &configv1.GrpcTransport{Endpoint: "dns:///search:443"}},
+					Transports:   []*configv1.Transport{grpcConfigTransport("dns:///search:443")},
 				},
 			}}, nil
 		},
@@ -353,6 +359,10 @@ func TestRunPropagatesConfigLoadFailure(t *testing.T) {
 
 func newTestRuntime(ctx context.Context, _ RuntimeOptions) (runtimepkg.Context, error) {
 	return runtimepkg.New(ctx, nil), nil
+}
+
+func grpcConfigTransport(endpoint string) *configv1.Transport {
+	return &configv1.Transport{Transport: &configv1.Transport_Grpc{Grpc: &configv1.GrpcTransport{Endpoint: endpoint}}}
 }
 
 func stringPtr(value string) *string {
