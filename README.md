@@ -1,122 +1,92 @@
 # recall
 
-`recall` is a federated personal-search CLI. It loads an operator-owned provider registry, asks each enabled provider to search the same query, normalizes results, blends provider-local ranks, and renders a single response with clickable terminal open targets when available.
+Federated personal search across local and remote sources.
 
-See [docs/why.md](docs/why.md) for the motivation: making scattered personal and work information discoverable through one consistent provider model.
+`recall` gives scattered information one command-line front door. Code, GitHub, notes, tickets, messages, calendars, and future sources can each keep their own search semantics while exposing searchable surfaces through one provider model.
 
-Providers implement the versioned protobuf service in `proto/recall/search/v1/search.proto`:
+See [docs/why.md](docs/why.md) for the motivation: making personal and work information discoverable instead of relying on memory, aliases, and one-off search habits.
 
-```proto
-service SearchProvider {
-  rpc Search(SearchRequest) returns (SearchResponse);
-  rpc ListCapabilities(ListCapabilitiesRequest) returns (ListCapabilitiesResponse);
-}
+## What it feels like
 
-message SearchRequest {
-  string query = 1;
-  optional uint32 limit = 2;
-  repeated string selector_hints = 3;
-}
-```
-
-Recall-level selector routing and output format are orchestration or rendering controls. Providers receive `query`, optional `limit`, and advisory provider-local `selector_hints`; recall still applies authoritative selector filtering after provider responses. The selector taxonomy and structured result contract are documented in the proto comments.
-
-Structured results separate machine identity from display data: `Result.id` is stable provider-local identity, rendered titles/snippets/timestamps/statuses are typed `fields`, `format.title_fields` and `format.detail_fields` choose human output, and open targets describe where to open rather than what to display.
-
-## Provider compatibility boundary
-
-This repository supports only the structured `SearchResponse.results` contract in `recall.search.v1`. Providers that still emit the old hit-shaped response (`SearchHit`, `hits`, `title`, `snippet`, or display timestamps on open targets) are incompatible and must be updated against `proto/recall/search/v1/search.proto`.
-
-There is no legacy decoding path, compatibility adapter, or mixed old/new validation mode. External and sibling providers are outside this repository's migration scope; their owners should update them independently. Use the first-party providers in this repo as acceptance fixtures instead of relying on a personal config that may include unmigrated external providers.
-
-## Stdio provider protocol
-
-A stdio provider is a one-shot process. For each RPC call, `recall` runs:
+List the sources and surfaces you have available:
 
 ```bash
-provider [provider args] /recall.search.v1.SearchProvider/Search
+recall -ls
 ```
 
-The request is read from stdin and the response is written to stdout. Stderr is reserved for diagnostics.
+Search everything enabled in your registry:
 
-The final argument is the RPC path:
-
-```text
-/<protobuf service>/<method>
+```bash
+recall "checkout parser"
 ```
 
-For the built-in search contract, the paths are:
+Search local code through the ripgrep provider:
 
-```text
-/recall.search.v1.SearchProvider/Search
-/recall.search.v1.SearchProvider/ListCapabilities
+```bash
+recall -s code:file:content "checkout type:go"
 ```
 
-Providers auto-detect whether stdin is protobuf binary or textproto, then mirror the same format on stdout. `recall` uses protobuf binary for normal provider calls; humans can pipe textproto directly for debugging.
+Use provider-owned query syntax for the small stuff, like excluding tests:
 
-## Build a Go provider
-
-Go provider binaries can use the public SDK package:
-
-```go
-package main
-
-import (
-	"context"
-	"fmt"
-	"os"
-
-	recallprovider "github.com/solodov/recall/provider"
-	searchv1 "github.com/solodov/recall/proto/recall/search/v1"
-)
-
-type Provider struct{}
-
-func (Provider) ListCapabilities(context.Context, *searchv1.ListCapabilitiesRequest) (*searchv1.ListCapabilitiesResponse, error) {
-	return &searchv1.ListCapabilitiesResponse{Surfaces: []*searchv1.SearchSurface{{Selector: "note:content", Title: "Notes"}}}, nil
-}
-
-func (Provider) Search(ctx context.Context, request *searchv1.SearchRequest) (*searchv1.SearchResponse, error) {
-	results := []*searchv1.SearchResponse_Result{{
-		Id:       "note:1",
-		Selector: "note:content",
-		Fields: []*searchv1.SearchResponse_Result_Field{
-			{Key: "title", Value: &searchv1.SearchResponse_Result_Field_Text{Text: request.GetQuery()}},
-			{Key: "snippet", Value: &searchv1.SearchResponse_Result_Field_Text{Text: "Matched note body"}},
-		},
-		Targets: []*searchv1.OpenTarget{{
-			Target: &searchv1.OpenTarget_File{File: &searchv1.FileTarget{Path: "/tmp/note.md"}},
-		}},
-		Format: &searchv1.SearchResponse_Result_Format{
-			TitleFields:  []string{"title"},
-			DetailFields: []string{"snippet"},
-		},
-	}}
-	if limit, ok := recallprovider.RequestedLimit(request); ok && len(results) > limit {
-		results = results[:limit]
-	}
-	return &searchv1.SearchResponse{Results: results}, nil
-}
-
-func main() {
-	if err := recallprovider.ServeSearch(context.Background(), Provider{}); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-}
+```bash
+recall -s code:file:content "checkout type:go -in:test"
 ```
 
-The SDK handles the stdio RPC path, stdin format auto-detection, mirrored stdout encoding, and dispatch to `Search` or `ListCapabilities`.
+Search only file names/paths:
+
+```bash
+recall -s code:file:name in:router
+```
+
+Search GitHub through the `gh`-backed provider:
+
+```bash
+recall -s github:pr:content "repo:example/project parser"
+recall -s github:issue:content "org:example is:open label:bug"
+recall -s github:file:content "SearchRequest repo:example/project language:go"
+```
+
+Ask for JSON when another tool or agent needs structured output:
+
+```bash
+recall -f json "rollout"
+```
+
+Human output is grouped by source and provider-native context. When providers return open targets, terminals that support OSC 8 links can open files, URLs, pull requests, messages, or provider config locations through `recall-open`.
 
 ## First-party providers
 
-- `recall-example-provider` demonstrates the provider contract with a deterministic fixture.
-- `recall-ripgrep-provider` searches local code with ripgrep; see `docs/recall-ripgrep-provider.md`.
-- `recall-gh-provider` searches GitHub through `gh`; see `docs/recall-gh-provider.md`.
+- `recall-example-provider` demonstrates the provider contract with deterministic fixture data.
+- `recall-ripgrep-provider` searches local paths and file contents with ripgrep; see [docs/recall-ripgrep-provider.md](docs/recall-ripgrep-provider.md).
+- `recall-gh-provider` searches GitHub code, commits, issues, pull requests, and repositories through `gh`; see [docs/recall-gh-provider.md](docs/recall-gh-provider.md).
+
+## How it works
+
+A recall source is a provider implementing `recall.search.v1.SearchProvider` from [proto/recall/search/v1/search.proto](proto/recall/search/v1/search.proto). Providers advertise local search surfaces such as `file:content`, `file:name`, or `pr:content`; recall prefixes them with the configured source id, such as `code:file:content` or `github:pr:content`.
+
+`recall` owns orchestration and presentation:
+
+- load the operator registry;
+- select providers and surfaces;
+- fan out the query;
+- validate structured responses;
+- blend provider-local ranks;
+- render human or JSON output;
+- turn open targets into clickable terminal links.
+
+Providers own source-specific behavior:
+
+- authentication and indexing;
+- query syntax;
+- source-native result ordering;
+- field mapping;
+- open targets and grouping.
+
+This keeps powerful provider-specific search features available without making the CLI a pile of disconnected aliases.
 
 ## Run the example
 
-The example script builds `recall` and the example provider, writes a temporary config that points at the built provider, and runs a search:
+The example script builds `recall` and the example provider, writes a temporary config, and runs a search:
 
 ```bash
 examples/run-example.sh
@@ -124,71 +94,22 @@ examples/run-example.sh rollout
 examples/run-example.sh --format json rollout
 ```
 
-The script defaults to the query `rollout` when no query is supplied.
+## Configure sources
 
-## Pipe textproto directly to a provider
+The default registry path is `$XDG_CONFIG_HOME/recall/config.txtpb`, falling back to `$HOME/.config/recall/config.txtpb`. Example registry snippets live in:
 
-Build the binaries first:
+- [examples/config.txtpb](examples/config.txtpb)
+- [examples/ripgrep.config.txtpb](examples/ripgrep.config.txtpb)
+- [examples/gh.config.txtpb](examples/gh.config.txtpb)
 
-```bash
-just build
-```
+Provider entries declare availability and transports only. Service and method are protocol-owned, so recall appends the selected RPC path at call time.
 
-This produces `dist/recall`, `dist/recall-open`, `dist/recall-example-provider`, `dist/recall-ripgrep-provider`, and `dist/recall-gh-provider`.
+## Build providers
 
-Then call the example provider directly with a textproto `SearchRequest`:
+Go providers can use the public SDK in [provider](provider). The provider-facing contract and structured result model are documented in:
 
-```bash
-printf 'query: "rollout"\n' |
-  dist/recall-example-provider /recall.search.v1.SearchProvider/Search
-```
-
-Omitting `limit` asks the provider to return every reasonable match. Add `limit` when you want a cap:
-
-```bash
-printf 'query: "rollout"\nlimit: 10\n' |
-  dist/recall-example-provider /recall.search.v1.SearchProvider/Search
-```
-
-Because stdin is textproto, stdout is a textproto `SearchResponse`. Provider responses use structured results, for example:
-
-```textproto
-results {
-  id: "rollout-note"
-  selector: "note:content"
-  fields { key: "title" text: "Sample rollout note" }
-  fields { key: "snippet" text: "Checklist for staged rollouts..." }
-  format {
-    title_fields: "title"
-    detail_fields: "snippet"
-  }
-}
-```
-
-## Provider registry
-
-The default registry path is `$XDG_CONFIG_HOME/recall/config.txtpb`, falling back to `$HOME/.config/recall/config.txtpb`. You can pass a registry explicitly with `--config PATH`.
-
-A provider entry lists one or more transports in preference order:
-
-```textproto
-providers {
-  id: "example"
-  enabled: true
-  weight: 1.0
-  timeout_ms: 1500
-  default_limit: 10
-  transports {
-    stdio {
-      command: "recall-example-provider"
-    }
-  }
-}
-```
-
-Service and method are protocol-owned, so they are not config fields. For stdio providers, `recall` appends the selected `SearchProvider` RPC path at call time.
-
-`openers` are optional local commands used by `recall-open` for OSC 8 `recall://` terminal links.
+- [proto/recall/search/v1/search.proto](proto/recall/search/v1/search.proto)
+- [docs/recall-compatible-search.md](docs/recall-compatible-search.md)
 
 ## Development
 
