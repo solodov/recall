@@ -2,7 +2,7 @@
 
 `recall` is a federated personal-search CLI. It loads an operator-owned provider registry, asks each enabled provider to search the same query, normalizes results, blends provider-local ranks, and renders a single response with clickable terminal open targets when available.
 
-See [why.md](why.md) for the motivation: making scattered personal and work information discoverable through one consistent provider model.
+See [docs/why.md](docs/why.md) for the motivation: making scattered personal and work information discoverable through one consistent provider model.
 
 Providers implement the versioned protobuf service in `proto/recall/search/v1/search.proto`:
 
