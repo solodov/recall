@@ -9,16 +9,61 @@ import (
 
 	"github.com/solodov/recall/internal/normalize"
 	"github.com/solodov/recall/internal/orchestrator"
+	"github.com/solodov/recall/internal/rank"
 	searchv1 "github.com/solodov/recall/proto/recall/search/v1"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func TestWriteHumanDefaultsToGroupedTerminalLayout(t *testing.T) {
+func TestWriteHumanRendersFormatTitleAndOrderedDetails(t *testing.T) {
 	useLocalZone(t, "TEST", 2*60*60)
+	result := providerResult("jira", issueResult())
 	var output bytes.Buffer
-	result := renderFixtureResult()
+
+	if err := WriteHuman(&output, result, HumanOptions{}); err != nil {
+		t.Fatalf("WriteHuman returned error: %v", err)
+	}
+
+	text := stripOSC8(output.String())
+	for _, want := range []string{
+		"[jira:issue:content] Results",
+		"  OPS-42 Fix checkout total",
+		"    status: In Review",
+		"    updated at: 2026-04-28T11:30:00",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("human output %q does not contain %q", text, want)
+		}
+	}
+	for _, unwanted := range []string{"ticket:", "summary:", "updated_at", " TEST"} {
+		if strings.Contains(text, unwanted) {
+			t.Fatalf("human output %q contains renderer noise %q", text, unwanted)
+		}
+	}
+}
+
+func TestWriteHumanRendersSlackTimestampTitle(t *testing.T) {
+	useLocalZone(t, "TEST", 2*60*60)
+	messageTime := time.Date(2026, 4, 29, 10, 15, 30, 123456000, time.UTC)
+	message := &searchv1.SearchResponse_Result{
+		Id:       "message:C1:1777467330.123456",
+		Selector: "message:content",
+		Fields: []*searchv1.SearchResponse_Result_Field{
+			timestampField("timestamp", messageTime),
+			textField("snippet", "matched message text"),
+			textField("author", "fixture-bot"),
+		},
+		Targets: []*searchv1.OpenTarget{uriTarget("https://example.invalid/archives/C1/p1777467330123456")},
+		Group: &searchv1.SearchGroup{
+			Key:     "channel:C1",
+			Title:   "#fixtures",
+			Targets: []*searchv1.OpenTarget{uriTarget("https://example.invalid/archives/C1")},
+		},
+		Format: format([]string{"timestamp", "snippet"}, nil),
+	}
+	result := providerResult("slack", message)
+	var output bytes.Buffer
 
 	if err := WriteHuman(&output, result, HumanOptions{}); err != nil {
 		t.Fatalf("WriteHuman returned error: %v", err)
@@ -27,32 +72,66 @@ func TestWriteHumanDefaultsToGroupedTerminalLayout(t *testing.T) {
 	rawText := output.String()
 	text := stripOSC8(rawText)
 	for _, want := range []string{
-		"[example:note:content] Procedure notes",
-		"  Sample rollout note 2026-04-28T11:30:00",
-		"    matched rollout context",
-		"    actions: https file",
-		"[example:note:content] Results",
-		"  Loose hit",
-		"[example] warning: fixture warning",
+		"[slack:message:content] #fixtures",
+		"2026-04-29 12:15:30: matched message text",
+		"    author: fixture-bot",
 	} {
 		if !strings.Contains(text, want) {
-			t.Fatalf("human output %q does not contain %q", text, want)
+			t.Fatalf("grouped message output %q does not contain %q", text, want)
 		}
 	}
-	for _, unwanted := range []string{"# example", "## Procedure notes", "(note:content)"} {
-		if strings.Contains(text, unwanted) {
-			t.Fatalf("human output %q contains terminal noise %q", text, unwanted)
-		}
-	}
-	if !strings.Contains(rawText, "recall://open?") || !strings.Contains(rawText, "type=file") {
-		t.Fatalf("human output %q does not contain recall OSC8 target", rawText)
+	if !strings.Contains(rawText, "type=uri") || strings.Contains(rawText, "timestamp=") {
+		t.Fatalf("grouped message output %q should open URI without display timestamp parameters", rawText)
 	}
 }
 
-func TestWriteHumanUngroupedRendersOpenTargetsMetadataAndWarnings(t *testing.T) {
-	useLocalZone(t, "TEST", 2*60*60)
+func TestWriteHumanRendersRipgrepLineRowsFromFields(t *testing.T) {
+	result := providerResult("code", codeLineResult())
 	var output bytes.Buffer
-	result := renderFixtureResult()
+
+	if err := WriteHuman(&output, result, HumanOptions{}); err != nil {
+		t.Fatalf("WriteHuman returned error: %v", err)
+	}
+
+	rawText := output.String()
+	text := stripOSC8(rawText)
+	for _, want := range []string{
+		"[code:file:content] styleguide/kotlin/formatting.md",
+		"     51: fun createSampleItem(flavor: Flavor): SampleItem = when(flavor) {",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("grouped code output %q does not contain %q", text, want)
+		}
+	}
+	for _, unwanted := range []string{"line: 51", "snippet:", "(file:content)", "file:///workspace/codebase/styleguide/kotlin/formatting.md"} {
+		if strings.Contains(text, unwanted) {
+			t.Fatalf("grouped code output %q contains noisy metadata %q", text, unwanted)
+		}
+	}
+	if !strings.Contains(rawText, "recall://open?") || !strings.Contains(rawText, "line=51") || !strings.Contains(rawText, "column=11") {
+		t.Fatalf("grouped code output %q does not contain line recall target", rawText)
+	}
+	if !strings.Contains(rawText, groupTitleStyle+"styleguide/kotlin/formatting.md"+resetStyle) {
+		t.Fatalf("grouped code output %q does not style group title", rawText)
+	}
+	if !strings.Contains(rawText, lineNumberStyle+"   51:"+resetStyle) {
+		t.Fatalf("grouped code output %q does not style line number", rawText)
+	}
+}
+
+func TestWriteHumanFallbacksWhenFormatAbsent(t *testing.T) {
+	useLocalZone(t, "TEST", 2*60*60)
+	result := providerResult("notes", &searchv1.SearchResponse_Result{
+		Id:       "note:1",
+		Selector: "note:content",
+		Fields: []*searchv1.SearchResponse_Result_Field{
+			textField("title", "Loose hit"),
+			textField("snippet", "More context"),
+			timestampField("updated_at", time.Date(2026, 4, 28, 9, 30, 0, 0, time.UTC)),
+		},
+		Targets: []*searchv1.OpenTarget{fileTarget("/tmp/loose.md", 0, 0)},
+	})
+	var output bytes.Buffer
 
 	if err := WriteHuman(&output, result, HumanOptions{Ungrouped: true}); err != nil {
 		t.Fatalf("WriteHuman returned error: %v", err)
@@ -60,39 +139,74 @@ func TestWriteHumanUngroupedRendersOpenTargetsMetadataAndWarnings(t *testing.T) 
 
 	text := stripOSC8(output.String())
 	for _, want := range []string{
-		"[example] Sample rollout note (note:content) 2026-04-28T11:30:00",
-		"matched rollout context",
-		"actions: https file",
-		"[example] warning: fixture warning",
+		"[notes] Loose hit (note:content)",
+		"  snippet: More context",
+		"  updated at: 2026-04-28T11:30:00",
 	} {
 		if !strings.Contains(text, want) {
-			t.Fatalf("ungrouped output %q does not contain %q", text, want)
+			t.Fatalf("fallback output %q does not contain %q", text, want)
 		}
 	}
 }
 
-func TestWriteHumanGroupedSuppressesGroupFileAction(t *testing.T) {
+func TestWriteHumanSkipsMissingFormatKeys(t *testing.T) {
+	result := providerResult("jira", &searchv1.SearchResponse_Result{
+		Id:       "issue:OPS-43",
+		Selector: "issue:content",
+		Fields: []*searchv1.SearchResponse_Result_Field{
+			textField("summary", "Investigate refund state"),
+			textField("status", "Open"),
+		},
+		Targets: []*searchv1.OpenTarget{uriTarget("https://example.invalid/browse/OPS-43")},
+		Format:  format([]string{"missing_title", "summary"}, []string{"missing_detail", "status"}),
+	})
 	var output bytes.Buffer
-	result := orgEntryResult()
 
 	if err := WriteHuman(&output, result, HumanOptions{}); err != nil {
 		t.Fatalf("WriteHuman returned error: %v", err)
 	}
 
 	text := stripOSC8(output.String())
-	for _, want := range []string{"[org:entry:content] notes.org", "  Matched org entry"} {
+	for _, want := range []string{"  Investigate refund state", "    status: Open"} {
 		if !strings.Contains(text, want) {
-			t.Fatalf("grouped org output %q does not contain %q", text, want)
+			t.Fatalf("missing-key output %q does not contain %q", text, want)
 		}
 	}
-	if strings.Contains(text, "actions: file") || strings.Contains(text, "actions:") {
-		t.Fatalf("grouped org output %q contains redundant file action", text)
+	if strings.Contains(text, "missing") {
+		t.Fatalf("missing-key output %q rendered an unknown format key", text)
+	}
+}
+
+func TestWriteHumanIgnoresDuplicateFormatKeys(t *testing.T) {
+	result := providerResult("jira", &searchv1.SearchResponse_Result{
+		Id:       "issue:OPS-44",
+		Selector: "issue:content",
+		Fields: []*searchv1.SearchResponse_Result_Field{
+			textField("ticket", "OPS-44"),
+			textField("summary", "Fix duplicate charge"),
+			textField("status", "Open"),
+		},
+		Targets: []*searchv1.OpenTarget{uriTarget("https://example.invalid/browse/OPS-44")},
+		Format:  format([]string{"ticket", "ticket", "summary"}, []string{"summary", "status", "status"}),
+	})
+	var output bytes.Buffer
+
+	if err := WriteHuman(&output, result, HumanOptions{}); err != nil {
+		t.Fatalf("WriteHuman returned error: %v", err)
+	}
+
+	text := stripOSC8(output.String())
+	if strings.Count(text, "OPS-44") != 1 || strings.Count(text, "Fix duplicate charge") != 1 || strings.Count(text, "status: Open") != 1 {
+		t.Fatalf("duplicate-key output %q did not render each selected field once", text)
+	}
+	if strings.Contains(text, "summary:") {
+		t.Fatalf("duplicate-key output %q rendered a title field again as a detail", text)
 	}
 }
 
 func TestWriteHumanGroupedLinksSourceLabelToProviderConfig(t *testing.T) {
+	result := providerResult("code", codeLineResult())
 	var output bytes.Buffer
-	result := codeMatchResult()
 
 	if err := WriteHuman(&output, result, HumanOptions{ProviderConfigTargets: map[string]*searchv1.OpenTarget{
 		"code": fileTarget("/workspace/config/recall.txtpb", 17, 1),
@@ -110,123 +224,8 @@ func TestWriteHumanGroupedLinksSourceLabelToProviderConfig(t *testing.T) {
 	}
 }
 
-func TestWriteHumanGroupedRendersFileLinesWithLinkedSnippets(t *testing.T) {
-	var output bytes.Buffer
-	result := codeMatchResult()
-
-	if err := WriteHuman(&output, result, HumanOptions{}); err != nil {
-		t.Fatalf("WriteHuman returned error: %v", err)
-	}
-
-	rawText := output.String()
-	text := stripOSC8(rawText)
-	for _, want := range []string{
-		"[code:file:content] styleguide/kotlin/formatting.md",
-		"     51: fun createSampleItem(flavor: Flavor): SampleItem = when(flavor) {",
-	} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("grouped code output %q does not contain %q", text, want)
-		}
-	}
-	for _, unwanted := range []string{"# code", "## styleguide/kotlin/formatting.md", "[code] styleguide/kotlin/formatting.md:51:11", "file:///workspace/codebase/styleguide/kotlin/formatting.md", "(file:content)"} {
-		if strings.Contains(text, unwanted) {
-			t.Fatalf("grouped code output %q contains noisy metadata %q", text, unwanted)
-		}
-	}
-	groupURL := "recall://open?path=%2Fworkspace%2Fcodebase%2Fstyleguide%2Fkotlin%2Fformatting.md&selector=file%3Acontent&source=code&type=file&v=1"
-	if !strings.Contains(rawText, groupURL) {
-		t.Fatalf("grouped code output %q does not contain file group recall target %q", rawText, groupURL)
-	}
-	if !strings.Contains(rawText, "recall://open?") || !strings.Contains(rawText, "line=51") || !strings.Contains(rawText, "column=11") {
-		t.Fatalf("grouped code output %q does not contain line recall target", rawText)
-	}
-	if !strings.Contains(rawText, groupTitleStyle+"styleguide/kotlin/formatting.md"+resetStyle) {
-		t.Fatalf("grouped code output %q does not style group title", rawText)
-	}
-	if !strings.Contains(rawText, lineNumberStyle+"   51:"+resetStyle) {
-		t.Fatalf("grouped code output %q does not style line number", rawText)
-	}
-}
-
-func TestWriteHumanUngroupedRendersCodeMatchesCompactly(t *testing.T) {
-	var output bytes.Buffer
-	result := codeMatchResult()
-
-	if err := WriteHuman(&output, result, HumanOptions{Ungrouped: true}); err != nil {
-		t.Fatalf("WriteHuman returned error: %v", err)
-	}
-
-	rawText := output.String()
-	text := stripOSC8(rawText)
-	for _, want := range []string{
-		"[code] styleguide/kotlin/formatting.md:51:11",
-		"  fun createSampleItem(flavor: Flavor): SampleItem = when(flavor) {",
-	} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("code output %q does not contain %q", text, want)
-		}
-	}
-	for _, unwanted := range []string{"file:///workspace/codebase/styleguide/kotlin/formatting.md", "(file:content)"} {
-		if strings.Contains(text, unwanted) {
-			t.Fatalf("code output %q contains noisy metadata %q", text, unwanted)
-		}
-	}
-	if !strings.Contains(rawText, "recall://open?") || !strings.Contains(rawText, "path=%2Fworkspace%2Fcodebase%2Fstyleguide%2Fkotlin%2Fformatting.md") {
-		t.Fatalf("code output %q does not contain file recall target", rawText)
-	}
-}
-
-func TestWriteHumanGroupedRendersTimestampedURIRows(t *testing.T) {
-	useLocalZone(t, "TEST", 2*60*60)
-	var output bytes.Buffer
-	messageTime := time.Date(2026, 4, 29, 10, 15, 30, 123456000, time.UTC)
-	hit := &searchv1.SearchHit{
-		Id:       "message:1",
-		Selector: "message:content",
-		Title:    "Message from fixture channel",
-		Snippet:  proto.String("matched message text"),
-		Targets: []*searchv1.OpenTarget{
-			timestampedURITarget("https://example.invalid/archives/C1/p1777467330123456", messageTime),
-		},
-		Group: &searchv1.SearchGroup{
-			Key:     "channel:C1",
-			Title:   "#fixtures",
-			Targets: []*searchv1.OpenTarget{uriTarget("https://example.invalid/archives/C1")},
-		},
-	}
-	result := &orchestrator.Result{Responses: []orchestrator.ProviderResponse{{
-		ProviderID: "slack",
-		Hits: []normalize.Hit{{
-			ProviderID:   "slack",
-			ProviderRank: 1,
-			Hit:          hit,
-		}},
-		Raw: &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{hit}},
-	}}}
-
-	if err := WriteHuman(&output, result, HumanOptions{}); err != nil {
-		t.Fatalf("WriteHuman returned error: %v", err)
-	}
-
-	rawText := output.String()
-	text := stripOSC8(rawText)
-	for _, want := range []string{
-		"[slack:message:content] #fixtures",
-		"2026-04-29 12:15:30: matched message text",
-	} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("grouped message output %q does not contain %q", text, want)
-		}
-	}
-	for _, want := range []string{"type=uri", "timestamp=2026-04-29T10%3A15%3A30.123456Z"} {
-		if !strings.Contains(rawText, want) {
-			t.Fatalf("grouped message output %q does not contain recall URL parameter %q", rawText, want)
-		}
-	}
-}
-
 func TestRecallOpenURLDoesNotDuplicateURIScheme(t *testing.T) {
-	openURL := recallOpenURL("notes", "org_node", uriTarget("org-protocol:/roam-node?node=89808715-6315-4484-B726-DFC9F4F2345D"))
+	openURL := recallOpenURL("notes", "entry:content", uriTarget("org-protocol:/roam-node?node=89808715-6315-4484-B726-DFC9F4F2345D"))
 
 	if strings.Contains(openURL, "scheme=") {
 		t.Fatalf("recall URL %q contains redundant scheme query parameter", openURL)
@@ -236,11 +235,22 @@ func TestRecallOpenURLDoesNotDuplicateURIScheme(t *testing.T) {
 	}
 }
 
-func TestWriteJSONPreservesProviderResponsesAndFailures(t *testing.T) {
-	var output bytes.Buffer
-	result := renderFixtureResult()
+func TestWriteJSONPreservesStructuredFieldsAndFailures(t *testing.T) {
+	issue := issueResult()
+	issue.Fields = append(issue.Fields, textField("internal_token", "preserved but hidden"))
+	result := providerResult("jira", issue)
+	result.BlendedResults = []rank.Result{{Normalized: result.Responses[0].Results[0], BlendedScore: 0.5}}
 	result.Failures = []orchestrator.ProviderFailure{{ProviderID: "bad", Err: assertErr("boom")}}
 
+	var human bytes.Buffer
+	if err := WriteHuman(&human, result, HumanOptions{}); err != nil {
+		t.Fatalf("WriteHuman returned error: %v", err)
+	}
+	if strings.Contains(stripOSC8(human.String()), "internal token") || strings.Contains(stripOSC8(human.String()), "preserved but hidden") {
+		t.Fatalf("human output %q rendered a field not selected by format", stripOSC8(human.String()))
+	}
+
+	var output bytes.Buffer
 	if err := WriteJSON(&output, result); err != nil {
 		t.Fatalf("WriteJSON returned error: %v", err)
 	}
@@ -249,31 +259,30 @@ func TestWriteJSONPreservesProviderResponsesAndFailures(t *testing.T) {
 		Responses []struct {
 			ProviderID string `json:"provider_id"`
 			Response   struct {
-				Hits []struct {
-					ID         string `json:"id"`
-					Selector   string `json:"selector"`
-					Title      string `json:"title"`
-					Snippet    string `json:"snippet"`
-					OccurredAt string `json:"occurred_at"`
-					Targets    []struct {
-						URI struct {
-							URI string `json:"uri"`
-						} `json:"uri"`
-						File struct {
-							Path string `json:"path"`
-						} `json:"file"`
-					} `json:"targets"`
-					Group struct {
-						Key   string `json:"key"`
-						Title string `json:"title"`
-					} `json:"group"`
-				} `json:"hits"`
+				Results []struct {
+					ID       string `json:"id"`
+					Selector string `json:"selector"`
+					Fields   []struct {
+						Key  string `json:"key"`
+						Text string `json:"text"`
+					} `json:"fields"`
+					Format struct {
+						TitleFields  []string `json:"title_fields"`
+						DetailFields []string `json:"detail_fields"`
+					} `json:"format"`
+				} `json:"results"`
 				Warnings []struct {
 					Message string `json:"message"`
 					Code    string `json:"code"`
 				} `json:"warnings"`
 			} `json:"response"`
 		} `json:"responses"`
+		BlendedResults []struct {
+			ProviderID string `json:"provider_id"`
+			Result     struct {
+				ID string `json:"id"`
+			} `json:"result"`
+		} `json:"blended_results"`
 		Failures []struct {
 			ProviderID string `json:"provider_id"`
 			Error      string `json:"error"`
@@ -283,119 +292,104 @@ func TestWriteJSONPreservesProviderResponsesAndFailures(t *testing.T) {
 		t.Fatalf("unmarshal JSON output: %v\n%s", err, output.String())
 	}
 
-	if len(payload.Responses) != 1 || payload.Responses[0].ProviderID != "example" {
+	if len(payload.Responses) != 1 || payload.Responses[0].ProviderID != "jira" {
 		t.Fatalf("responses metadata = %#v", payload.Responses)
 	}
-	hits := payload.Responses[0].Response.Hits
-	if len(hits) != 2 {
-		t.Fatalf("hit count = %d, want 2", len(hits))
+	results := payload.Responses[0].Response.Results
+	if len(results) != 1 || results[0].ID != "issue:OPS-42" || results[0].Selector != "issue:content" {
+		t.Fatalf("results were not preserved: %#v", results)
 	}
-	if hits[0].ID != "rollout" || hits[0].Targets[0].File.Path != "/tmp/rollout.md" || hits[0].Group.Key != "procedures" {
-		t.Fatalf("first hit did not preserve fields: %#v", hits[0])
+	if !containsField(results[0].Fields, "internal_token", "preserved but hidden") {
+		t.Fatalf("JSON fields did not preserve hidden field: %#v", results[0].Fields)
+	}
+	if len(results[0].Format.TitleFields) != 2 || results[0].Format.TitleFields[0] != "ticket" || results[0].Format.DetailFields[1] != "updated_at" {
+		t.Fatalf("format was not preserved: %#v", results[0].Format)
 	}
 	if payload.Responses[0].Response.Warnings[0].Code != "fixture_warning" {
 		t.Fatalf("warnings were not preserved: %#v", payload.Responses[0].Response.Warnings)
+	}
+	if len(payload.BlendedResults) != 1 || payload.BlendedResults[0].Result.ID != "issue:OPS-42" {
+		t.Fatalf("blended results were not preserved: %#v", payload.BlendedResults)
 	}
 	if len(payload.Failures) != 1 || payload.Failures[0].ProviderID != "bad" || payload.Failures[0].Error != "boom" {
 		t.Fatalf("failures = %#v", payload.Failures)
 	}
 }
 
-func orgEntryResult() *orchestrator.Result {
-	hit := &searchv1.SearchHit{
-		Id:       "org:entry",
-		Selector: "entry:content",
-		Title:    "Matched org entry",
-		Targets: []*searchv1.OpenTarget{
-			uriTarget("org-protocol:/roam-node?node=89808715-6315-4484-B726-DFC9F4F2345D"),
-			fileTarget("/tmp/notes.org", 12, 1),
+func issueResult() *searchv1.SearchResponse_Result {
+	return &searchv1.SearchResponse_Result{
+		Id:       "issue:OPS-42",
+		Selector: "issue:content",
+		Fields: []*searchv1.SearchResponse_Result_Field{
+			textField("ticket", "OPS-42"),
+			textField("summary", "Fix checkout total"),
+			textField("status", "In Review"),
+			timestampField("updated_at", time.Date(2026, 4, 28, 9, 30, 0, 0, time.UTC)),
 		},
-		Group: &searchv1.SearchGroup{
-			Key:     "file:/tmp/notes.org",
-			Title:   "notes.org",
-			Targets: []*searchv1.OpenTarget{fileTarget("/tmp/notes.org", 0, 0)},
-		},
+		Targets: []*searchv1.OpenTarget{uriTarget("https://example.invalid/browse/OPS-42")},
+		Format:  format([]string{"ticket", "summary"}, []string{"status", "updated_at"}),
 	}
-	return &orchestrator.Result{Responses: []orchestrator.ProviderResponse{{
-		ProviderID: "org",
-		Hits: []normalize.Hit{{
-			ProviderID:   "org",
-			ProviderRank: 1,
-			Hit:          hit,
-		}},
-		Raw: &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{hit}},
-	}}}
 }
 
-func codeMatchResult() *orchestrator.Result {
-	hit := &searchv1.SearchHit{
+func codeLineResult() *searchv1.SearchResponse_Result {
+	return &searchv1.SearchResponse_Result{
 		Id:       "file_content:/workspace/codebase/styleguide/kotlin/formatting.md:51:11",
 		Selector: "file:content",
-		Title:    "styleguide/kotlin/formatting.md:51:11",
-		Snippet:  proto.String("fun createSampleItem(flavor: Flavor): SampleItem = when(flavor) {"),
-		Targets:  []*searchv1.OpenTarget{fileTarget("/workspace/codebase/styleguide/kotlin/formatting.md", 51, 11)},
+		Fields: []*searchv1.SearchResponse_Result_Field{
+			integerField("line", 51),
+			textField("snippet", "fun createSampleItem(flavor: Flavor): SampleItem = when(flavor) {"),
+		},
+		Targets: []*searchv1.OpenTarget{fileTarget("/workspace/codebase/styleguide/kotlin/formatting.md", 51, 11)},
 		Group: &searchv1.SearchGroup{
 			Key:     "styleguide/kotlin/formatting.md",
 			Title:   "styleguide/kotlin/formatting.md",
 			Targets: []*searchv1.OpenTarget{fileTarget("/workspace/codebase/styleguide/kotlin/formatting.md", 0, 0)},
 		},
+		Format: format([]string{"line", "snippet"}, nil),
 	}
-	return &orchestrator.Result{Responses: []orchestrator.ProviderResponse{{
-		ProviderID: "code",
-		Hits: []normalize.Hit{{
-			ProviderID:   "code",
-			ProviderRank: 1,
-			Hit:          hit,
-		}},
-		Raw: &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{hit}},
-	}}}
 }
 
-func renderFixtureResult() *orchestrator.Result {
-	occurredAt := timestamppb.New(time.Date(2026, 4, 28, 9, 30, 0, 0, time.UTC))
-	rolloutHit := &searchv1.SearchHit{
-		Id:         "rollout",
-		Selector:   "note:content",
-		Title:      "Sample rollout note",
-		Snippet:    proto.String("matched rollout context"),
-		Score:      proto.Float64(1.2),
-		OccurredAt: occurredAt,
-		Targets: []*searchv1.OpenTarget{
-			fileTarget("/tmp/rollout.md", 0, 0),
-			uriTarget("https://example.invalid/rollout"),
-			fileTarget("/tmp/source.md", 0, 0),
-		},
-		Group: &searchv1.SearchGroup{
-			Key:     "procedures",
-			Title:   "Procedure notes",
-			Targets: []*searchv1.OpenTarget{fileTarget("/tmp/procedures", 0, 0)},
-		},
+func providerResult(providerID string, results ...*searchv1.SearchResponse_Result) *orchestrator.Result {
+	warning := &searchv1.SearchResponse_Warning{Message: "fixture warning", Code: proto.String("fixture_warning")}
+	response := orchestrator.ProviderResponse{
+		ProviderID: providerID,
+		Results:    make([]normalize.Result, 0, len(results)),
+		Warnings:   []normalize.Warning{{ProviderID: providerID, Warning: warning}},
+		Raw:        &searchv1.SearchResponse{Results: results, Warnings: []*searchv1.SearchResponse_Warning{warning}},
 	}
-	looseHit := &searchv1.SearchHit{
-		Id:       "loose",
-		Selector: "note:content",
-		Title:    "Loose hit",
-		Targets:  []*searchv1.OpenTarget{fileTarget("/tmp/loose.md", 0, 0)},
+	for index, result := range results {
+		response.Results = append(response.Results, normalize.Result{ProviderID: providerID, ProviderRank: index + 1, Result: result})
 	}
-	warning := &searchv1.Warning{Message: "fixture warning", Code: proto.String("fixture_warning")}
-	raw := &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{rolloutHit, looseHit}, Warnings: []*searchv1.Warning{warning}}
-	return &orchestrator.Result{Responses: []orchestrator.ProviderResponse{{
-		ProviderID: "example",
-		Hits: []normalize.Hit{
-			{ProviderID: "example", ProviderRank: 1, Hit: rolloutHit},
-			{ProviderID: "example", ProviderRank: 2, Hit: looseHit},
-		},
-		Warnings: []normalize.Warning{{ProviderID: "example", Warning: warning}},
-		Raw:      raw,
-	}}}
+	return &orchestrator.Result{Responses: []orchestrator.ProviderResponse{response}}
+}
+
+func format(titleFields []string, detailFields []string) *searchv1.SearchResponse_Result_Format {
+	return &searchv1.SearchResponse_Result_Format{TitleFields: titleFields, DetailFields: detailFields}
+}
+
+func textField(key string, value string) *searchv1.SearchResponse_Result_Field {
+	return &searchv1.SearchResponse_Result_Field{
+		Key:   key,
+		Value: &searchv1.SearchResponse_Result_Field_Text{Text: value},
+	}
+}
+
+func integerField(key string, value int64) *searchv1.SearchResponse_Result_Field {
+	return &searchv1.SearchResponse_Result_Field{
+		Key:   key,
+		Value: &searchv1.SearchResponse_Result_Field_Integer{Integer: value},
+	}
+}
+
+func timestampField(key string, value time.Time) *searchv1.SearchResponse_Result_Field {
+	return &searchv1.SearchResponse_Result_Field{
+		Key:   key,
+		Value: &searchv1.SearchResponse_Result_Field_Timestamp{Timestamp: timestamppb.New(value)},
+	}
 }
 
 func uriTarget(uri string) *searchv1.OpenTarget {
 	return &searchv1.OpenTarget{Target: &searchv1.OpenTarget_Uri{Uri: &searchv1.UriTarget{Uri: uri}}}
-}
-
-func timestampedURITarget(uri string, timestamp time.Time) *searchv1.OpenTarget {
-	return &searchv1.OpenTarget{Target: &searchv1.OpenTarget_Uri{Uri: &searchv1.UriTarget{Uri: uri, Timestamp: timestamppb.New(timestamp)}}}
 }
 
 func fileTarget(path string, line uint32, column uint32) *searchv1.OpenTarget {
@@ -407,6 +401,18 @@ func fileTarget(path string, line uint32, column uint32) *searchv1.OpenTarget {
 		target.Column = proto.Uint32(column)
 	}
 	return &searchv1.OpenTarget{Target: &searchv1.OpenTarget_File{File: target}}
+}
+
+func containsField(fields []struct {
+	Key  string `json:"key"`
+	Text string `json:"text"`
+}, key string, text string) bool {
+	for _, field := range fields {
+		if field.Key == key && field.Text == text {
+			return true
+		}
+	}
+	return false
 }
 
 func useLocalZone(t *testing.T, name string, offsetSeconds int) {

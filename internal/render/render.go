@@ -30,16 +30,16 @@ type HumanOptions struct {
 	ProviderConfigTargets map[string]*searchv1.OpenTarget
 }
 
-// WriteHuman renders normalized results with compact terminal-oriented rules.
-// Providers supply data only; recall chooses how to display common result
-// selectors, open targets, snippets, groups, and warnings.
+// WriteHuman renders normalized structured results with compact terminal rules.
+// Providers choose fields and suggested order; recall owns grouping, labels,
+// timestamp localization, terminal links, secondary actions, and fallbacks.
 func WriteHuman(writer io.Writer, result *orchestrator.Result, options HumanOptions) error {
 	if result == nil {
 		return nil
 	}
 	if options.Ungrouped {
-		for _, hit := range ungroupedHits(result) {
-			writeHumanHit(writer, hit, "")
+		for _, normalized := range ungroupedResults(result) {
+			writeHumanResult(writer, normalized, "")
 		}
 		for _, response := range result.Responses {
 			writeHumanWarnings(writer, response.Warnings)
@@ -52,14 +52,14 @@ func WriteHuman(writer io.Writer, result *orchestrator.Result, options HumanOpti
 func writeGroupedHuman(writer io.Writer, result *orchestrator.Result, options HumanOptions) error {
 	wroteGroup := false
 	for _, response := range result.Responses {
-		groups := groupHits(response.Hits)
+		groups := groupResults(response.Results)
 		for _, group := range groups {
 			if wroteGroup {
 				fmt.Fprintln(writer)
 			}
 			fmt.Fprintf(writer, "%s %s\n", linkedGroupHeaderLabel(response.ProviderID, group, options.ProviderConfigTargets), linkedGroupTitle(response.ProviderID, group))
-			for _, hit := range group.hits {
-				writeGroupedHit(writer, response.ProviderID, group, hit)
+			for _, normalized := range group.results {
+				writeGroupedResult(writer, response.ProviderID, group, normalized)
 			}
 			wroteGroup = true
 		}
@@ -68,95 +68,67 @@ func writeGroupedHuman(writer io.Writer, result *orchestrator.Result, options Hu
 	return nil
 }
 
-func writeHumanHit(writer io.Writer, normalized normalize.Hit, indent string) {
-	hit := normalized.Hit
-	if hit == nil {
+func writeHumanResult(writer io.Writer, normalized normalize.Result, indent string) {
+	result := normalized.Result
+	if result == nil {
 		return
 	}
-	if isCodeMatch(hit) {
-		writeCompactCodeHit(writer, normalized, indent)
-		return
-	}
-	title := linkedTitle(normalized.ProviderID, hit)
-	fmt.Fprintf(writer, "%s[%s] %s", indent, normalized.ProviderID, title)
-	if selector := strings.TrimSpace(hit.GetSelector()); selector != "" {
+	layout := layoutResult(result)
+	fmt.Fprintf(writer, "%s[%s] %s", indent, normalized.ProviderID, linkedTitle(normalized.ProviderID, result, titleText(layout.titleFields, result.GetId())))
+	if selector := strings.TrimSpace(result.GetSelector()); selector != "" {
 		fmt.Fprintf(writer, " (%s)", selector)
 	}
-	if occurredAt := hit.GetOccurredAt(); occurredAt != nil && occurredAt.IsValid() {
-		fmt.Fprintf(writer, " %s", formatInlineTimestamp(occurredAt.AsTime()))
-	}
 	fmt.Fprintln(writer)
-	if snippet := strings.TrimSpace(hit.GetSnippet()); snippet != "" {
-		fmt.Fprintf(writer, "%s  %s\n", indent, singleLine(snippet))
-	}
-	if actions := secondaryActions(normalized.ProviderID, hit.GetSelector(), hit.GetTargets()); actions != "" {
+	writeDetailRows(writer, indent+"  ", layout.detailFields)
+	if actions := secondaryActions(normalized.ProviderID, result.GetSelector(), result.GetTargets()); actions != "" {
 		fmt.Fprintf(writer, "%s  actions: %s\n", indent, actions)
 	}
 }
 
-func writeCompactCodeHit(writer io.Writer, normalized normalize.Hit, indent string) {
-	hit := normalized.Hit
-	fmt.Fprintf(writer, "%s[%s] %s", indent, normalized.ProviderID, linkedTitle(normalized.ProviderID, hit))
-	if occurredAt := hit.GetOccurredAt(); occurredAt != nil && occurredAt.IsValid() {
-		fmt.Fprintf(writer, " %s", formatInlineTimestamp(occurredAt.AsTime()))
-	}
-	fmt.Fprintln(writer)
-	if snippet := strings.TrimSpace(hit.GetSnippet()); snippet != "" {
-		fmt.Fprintf(writer, "%s  %s\n", indent, singleLine(snippet))
-	}
-	if actions := secondaryActions(normalized.ProviderID, hit.GetSelector(), hit.GetTargets()); actions != "" {
-		fmt.Fprintf(writer, "%s  actions: %s\n", indent, actions)
-	}
-}
-
-func writeGroupedHit(writer io.Writer, providerID string, group groupedHits, normalized normalize.Hit) {
-	hit := normalized.Hit
-	if hit == nil {
+func writeGroupedResult(writer io.Writer, providerID string, group groupedResults, normalized normalize.Result) {
+	result := normalized.Result
+	if result == nil {
 		return
 	}
-	if fileTarget, target, ok := groupedLineTarget(group, hit); ok {
-		label := groupedHitLabel(hit)
-		lineLabel := styleLineNumber(fmt.Sprintf("%5d:", fileTarget.GetLine()))
-		fmt.Fprintf(writer, "  %s %s", lineLabel, terminalLink(label, recallOpenURL(providerID, hit.GetSelector(), target)))
-		fmt.Fprintln(writer)
-		if actions := groupedSecondaryActions(providerID, hit.GetSelector(), group, hit.GetTargets()); actions != "" {
-			fmt.Fprintf(writer, "         actions: %s\n", actions)
+	layout := layoutResult(result)
+	if line, label, target, ok := groupedLineTitle(group, result, layout.titleFields); ok {
+		lineLabel := styleLineNumber(fmt.Sprintf("%5d:", line))
+		fmt.Fprintf(writer, "  %s %s\n", lineLabel, terminalLink(label, recallOpenURL(providerID, result.GetSelector(), target)))
+		writeDetailRows(writer, "    ", layout.detailFields)
+		if actions := groupedSecondaryActions(providerID, result.GetSelector(), group, result.GetTargets()); actions != "" {
+			fmt.Fprintf(writer, "    actions: %s\n", actions)
 		}
 		return
 	}
-	if timestamp, target, ok := groupedTimestampTarget(hit); ok {
-		label := groupedHitLabel(hit)
+	if timestamp, label, target, ok := groupedTimestampTitle(result, layout.titleFields); ok {
 		timeLabel := styleLineNumber(formatTimestampLabel(timestamp) + ":")
-		fmt.Fprintf(writer, "  %s %s", timeLabel, terminalLink(label, recallOpenURL(providerID, hit.GetSelector(), target)))
-		fmt.Fprintln(writer)
-		if actions := groupedSecondaryActions(providerID, hit.GetSelector(), group, hit.GetTargets()); actions != "" {
+		fmt.Fprintf(writer, "  %s %s\n", timeLabel, terminalLink(label, recallOpenURL(providerID, result.GetSelector(), target)))
+		writeDetailRows(writer, "    ", layout.detailFields)
+		if actions := groupedSecondaryActions(providerID, result.GetSelector(), group, result.GetTargets()); actions != "" {
 			fmt.Fprintf(writer, "    actions: %s\n", actions)
 		}
 		return
 	}
 
-	fmt.Fprintf(writer, "  %s", linkedTitle(providerID, hit))
-	if occurredAt := hit.GetOccurredAt(); occurredAt != nil && occurredAt.IsValid() {
-		fmt.Fprintf(writer, " %s", formatInlineTimestamp(occurredAt.AsTime()))
-	}
-	fmt.Fprintln(writer)
-	if snippet := groupedSnippet(hit); snippet != "" {
-		fmt.Fprintf(writer, "    %s\n", snippet)
-	}
-	if actions := groupedSecondaryActions(providerID, hit.GetSelector(), group, hit.GetTargets()); actions != "" {
+	fmt.Fprintf(writer, "  %s\n", linkedTitle(providerID, result, titleText(layout.titleFields, result.GetId())))
+	writeDetailRows(writer, "    ", layout.detailFields)
+	if actions := groupedSecondaryActions(providerID, result.GetSelector(), group, result.GetTargets()); actions != "" {
 		fmt.Fprintf(writer, "    actions: %s\n", actions)
 	}
 }
 
-func linkedTitle(providerID string, hit *searchv1.SearchHit) string {
-	title := singleLine(hit.GetTitle())
-	if target := firstTarget(hit.GetTargets()); target != nil {
-		return terminalLink(title, recallOpenURL(providerID, hit.GetSelector(), target))
+func linkedTitle(providerID string, result *searchv1.SearchResponse_Result, label string) string {
+	label = singleLine(label)
+	if label == "" {
+		label = singleLine(result.GetId())
 	}
-	return title
+	if target := firstTarget(result.GetTargets()); target != nil {
+		return terminalLink(label, recallOpenURL(providerID, result.GetSelector(), target))
+	}
+	return label
 }
 
-func linkedGroupTitle(providerID string, group groupedHits) string {
+func linkedGroupTitle(providerID string, group groupedResults) string {
 	title := styleGroupTitle(singleLine(group.title))
 	if target := firstTarget(group.targets); target != nil {
 		return terminalLink(title, recallOpenURL(providerID, commonGroupSelector(group), target))
@@ -164,7 +136,7 @@ func linkedGroupTitle(providerID string, group groupedHits) string {
 	return title
 }
 
-func linkedGroupHeaderLabel(providerID string, group groupedHits, configTargets map[string]*searchv1.OpenTarget) string {
+func linkedGroupHeaderLabel(providerID string, group groupedResults, configTargets map[string]*searchv1.OpenTarget) string {
 	label := styleGroupLabel("[" + groupHeaderLabel(providerID, group) + "]")
 	if target := configTargets[providerID]; target != nil {
 		return terminalLink(label, recallOpenURL(providerID, commonGroupSelector(group), target))
@@ -172,7 +144,7 @@ func linkedGroupHeaderLabel(providerID string, group groupedHits, configTargets 
 	return label
 }
 
-func groupHeaderLabel(providerID string, group groupedHits) string {
+func groupHeaderLabel(providerID string, group groupedResults) string {
 	if selector := commonGroupSelector(group); selector != "" {
 		return providerID + ":" + selector
 	}
@@ -198,56 +170,61 @@ func styleANSI(text string, style string) string {
 	return style + text + resetStyle
 }
 
-func commonGroupSelector(group groupedHits) string {
+func commonGroupSelector(group groupedResults) string {
 	var selector string
-	for _, normalized := range group.hits {
-		hit := normalized.Hit
-		if hit == nil {
+	for _, normalized := range group.results {
+		result := normalized.Result
+		if result == nil {
 			continue
 		}
-		hitSelector := strings.TrimSpace(hit.GetSelector())
-		if hitSelector == "" {
+		resultSelector := strings.TrimSpace(result.GetSelector())
+		if resultSelector == "" {
 			continue
 		}
 		if selector == "" {
-			selector = hitSelector
+			selector = resultSelector
 			continue
 		}
-		if selector != hitSelector {
+		if selector != resultSelector {
 			return ""
 		}
 	}
 	return selector
 }
 
-func groupedLineTarget(group groupedHits, hit *searchv1.SearchHit) (*searchv1.FileTarget, *searchv1.OpenTarget, bool) {
+func groupedLineTitle(group groupedResults, result *searchv1.SearchResponse_Result, titleFields []normalize.Field) (int64, string, *searchv1.OpenTarget, bool) {
+	if len(titleFields) < 2 || strings.TrimSpace(titleFields[0].Key) != "line" || titleFields[0].Kind != normalize.FieldKindInteger || titleFields[0].Integer <= 0 {
+		return 0, "", nil, false
+	}
 	groupFile := fileTargetForOpen(firstTarget(group.targets))
 	if groupFile == nil {
-		return nil, nil, false
+		return 0, "", nil, false
 	}
-	target := firstTarget(hit.GetTargets())
-	hitFile := fileTargetForOpen(target)
-	if hitFile == nil || hitFile.Line == nil {
-		return nil, nil, false
+	target := firstTarget(result.GetTargets())
+	resultFile := fileTargetForOpen(target)
+	if resultFile == nil || resultFile.Line == nil || !sameFilePath(groupFile.GetPath(), resultFile.GetPath()) {
+		return 0, "", nil, false
 	}
-	if !sameFilePath(groupFile.GetPath(), hitFile.GetPath()) {
-		return nil, nil, false
+	label := titleText(titleFields[1:], result.GetId())
+	if label == "" {
+		return 0, "", nil, false
 	}
-	return hitFile, target, true
+	return titleFields[0].Integer, label, target, true
 }
 
-func groupedTimestampTarget(hit *searchv1.SearchHit) (time.Time, *searchv1.OpenTarget, bool) {
-	target := firstTarget(hit.GetTargets())
-	if target == nil || target.GetUri() == nil {
-		return time.Time{}, nil, false
+func groupedTimestampTitle(result *searchv1.SearchResponse_Result, titleFields []normalize.Field) (time.Time, string, *searchv1.OpenTarget, bool) {
+	if len(titleFields) < 2 || titleFields[0].Kind != normalize.FieldKindTimestamp {
+		return time.Time{}, "", nil, false
 	}
-	if timestamp := target.GetUri().GetTimestamp(); timestamp != nil && timestamp.IsValid() {
-		return timestamp.AsTime(), target, true
+	target := firstTarget(result.GetTargets())
+	if target == nil {
+		return time.Time{}, "", nil, false
 	}
-	if occurredAt := hit.GetOccurredAt(); occurredAt != nil && occurredAt.IsValid() {
-		return occurredAt.AsTime(), target, true
+	label := titleText(titleFields[1:], result.GetId())
+	if label == "" {
+		return time.Time{}, "", nil, false
 	}
-	return time.Time{}, nil, false
+	return titleFields[0].Timestamp, label, target, true
 }
 
 func formatTimestampLabel(timestamp time.Time) string {
@@ -274,19 +251,10 @@ func sameFilePath(left string, right string) bool {
 	return filepath.Clean(left) == filepath.Clean(right)
 }
 
-func groupedHitLabel(hit *searchv1.SearchHit) string {
-	if snippet := strings.TrimSpace(hit.GetSnippet()); snippet != "" {
-		return singleLine(snippet)
+func writeDetailRows(writer io.Writer, indent string, fields []normalize.Field) {
+	for _, field := range fields {
+		fmt.Fprintf(writer, "%s%s: %s\n", indent, humanizeFieldKey(field.Key), fieldValue(field))
 	}
-	return singleLine(hit.GetTitle())
-}
-
-func groupedSnippet(hit *searchv1.SearchHit) string {
-	snippet := singleLine(hit.GetSnippet())
-	if snippet == "" || snippet == singleLine(hit.GetTitle()) {
-		return ""
-	}
-	return snippet
 }
 
 func writeHumanWarnings(writer io.Writer, warnings []normalize.Warning) {
@@ -314,17 +282,17 @@ func WriteJSON(writer io.Writer, result *orchestrator.Result) error {
 				Response:   responseJSON,
 			})
 		}
-		machineResult.BlendedHits = make([]machineBlendedHit, 0, len(result.BlendedHits))
-		for _, hit := range result.BlendedHits {
-			hitJSON, err := marshalSearchHit(hit.Normalized.Hit)
+		machineResult.BlendedResults = make([]machineBlendedResult, 0, len(result.BlendedResults))
+		for _, blended := range result.BlendedResults {
+			resultJSON, err := marshalSearchResult(blended.Normalized.Result)
 			if err != nil {
 				return err
 			}
-			machineResult.BlendedHits = append(machineResult.BlendedHits, machineBlendedHit{
-				ProviderID:   hit.Normalized.ProviderID,
-				ProviderRank: hit.Normalized.ProviderRank,
-				BlendedScore: hit.BlendedScore,
-				Hit:          hitJSON,
+			machineResult.BlendedResults = append(machineResult.BlendedResults, machineBlendedResult{
+				ProviderID:   blended.Normalized.ProviderID,
+				ProviderRank: blended.Normalized.ProviderRank,
+				BlendedScore: blended.BlendedScore,
+				Result:       resultJSON,
 			})
 		}
 		for _, failure := range result.Failures {
@@ -357,28 +325,28 @@ func marshalProviderResponse(response orchestrator.ProviderResponse) (json.RawMe
 	return json.RawMessage(payload), nil
 }
 
-func marshalSearchHit(hit *searchv1.SearchHit) (json.RawMessage, error) {
-	if hit == nil {
+func marshalSearchResult(result *searchv1.SearchResponse_Result) (json.RawMessage, error) {
+	if result == nil {
 		return json.RawMessage("null"), nil
 	}
 	payload, err := protojson.MarshalOptions{
 		EmitUnpopulated: true,
 		UseProtoNames:   true,
-	}.Marshal(hit)
+	}.Marshal(result)
 	if err != nil {
-		return nil, fmt.Errorf("marshal blended hit as JSON: %w", err)
+		return nil, fmt.Errorf("marshal blended result as JSON: %w", err)
 	}
 	return json.RawMessage(payload), nil
 }
 
 func synthesizeRawResponse(response orchestrator.ProviderResponse) *searchv1.SearchResponse {
 	raw := &searchv1.SearchResponse{
-		Hits:     make([]*searchv1.SearchHit, 0, len(response.Hits)),
-		Warnings: make([]*searchv1.Warning, 0, len(response.Warnings)),
+		Results:  make([]*searchv1.SearchResponse_Result, 0, len(response.Results)),
+		Warnings: make([]*searchv1.SearchResponse_Warning, 0, len(response.Warnings)),
 	}
-	for _, hit := range response.Hits {
-		if hit.Hit != nil {
-			raw.Hits = append(raw.Hits, hit.Hit)
+	for _, result := range response.Results {
+		if result.Result != nil {
+			raw.Results = append(raw.Results, result.Result)
 		}
 	}
 	for _, warning := range response.Warnings {
@@ -390,63 +358,156 @@ func synthesizeRawResponse(response orchestrator.ProviderResponse) *searchv1.Sea
 }
 
 const (
-	fileContentSelector = "file:content"
-
 	resetStyle      = "\x1b[0m"
 	groupLabelStyle = "\x1b[2;38;2;150;139;125m"
 	groupTitleStyle = "\x1b[1m"
 	lineNumberStyle = "\x1b[38;2;135;125;112m"
 )
 
-type groupedHits struct {
+type groupedResults struct {
 	key     string
 	title   string
 	targets []*searchv1.OpenTarget
-	hits    []normalize.Hit
+	results []normalize.Result
 }
 
-func ungroupedHits(result *orchestrator.Result) []normalize.Hit {
-	if len(result.BlendedHits) == 0 {
-		hits := []normalize.Hit{}
+type resultLayout struct {
+	titleFields  []normalize.Field
+	detailFields []normalize.Field
+}
+
+func ungroupedResults(result *orchestrator.Result) []normalize.Result {
+	if len(result.BlendedResults) == 0 {
+		results := []normalize.Result{}
 		for _, response := range result.Responses {
-			hits = append(hits, response.Hits...)
+			results = append(results, response.Results...)
 		}
-		return hits
+		return results
 	}
 
-	hits := make([]normalize.Hit, 0, len(result.BlendedHits))
-	for _, blended := range result.BlendedHits {
-		hits = append(hits, blended.Normalized)
+	results := make([]normalize.Result, 0, len(result.BlendedResults))
+	for _, blended := range result.BlendedResults {
+		results = append(results, blended.Normalized)
 	}
-	return hits
+	return results
 }
 
-func groupHits(hits []normalize.Hit) []groupedHits {
-	groups := []groupedHits{}
+func groupResults(results []normalize.Result) []groupedResults {
+	groups := []groupedResults{}
 	indexes := map[string]int{}
-	for _, hit := range hits {
-		group := hit.Hit.GetGroup()
+	for _, normalized := range results {
+		result := normalized.Result
+		if result == nil {
+			continue
+		}
+		group := result.GetGroup()
 		key := "__ungrouped__"
 		title := "Results"
 		var targets []*searchv1.OpenTarget
 		if group != nil && strings.TrimSpace(group.GetKey()) != "" {
 			key = group.GetKey()
-			title = group.GetTitle()
+			title = strings.TrimSpace(group.GetTitle())
+			if title == "" {
+				title = group.GetKey()
+			}
 			targets = group.GetTargets()
 		}
 		index, exists := indexes[key]
 		if !exists {
 			index = len(groups)
 			indexes[key] = index
-			groups = append(groups, groupedHits{key: key, title: title, targets: targets})
+			groups = append(groups, groupedResults{key: key, title: title, targets: targets})
 		}
-		groups[index].hits = append(groups[index].hits, hit)
+		groups[index].results = append(groups[index].results, normalized)
 	}
 	return groups
 }
 
-func isCodeMatch(hit *searchv1.SearchHit) bool {
-	return strings.TrimSpace(hit.GetSelector()) == fileContentSelector
+func layoutResult(result *searchv1.SearchResponse_Result) resultLayout {
+	fields := normalize.Fields(result)
+	if len(fields) == 0 {
+		return resultLayout{}
+	}
+	fieldByKey := make(map[string]normalize.Field, len(fields))
+	for _, field := range fields {
+		key := strings.TrimSpace(field.Key)
+		if key != "" {
+			fieldByKey[key] = field
+		}
+	}
+	used := map[string]bool{}
+	format := result.GetFormat()
+	layout := resultLayout{}
+	if format != nil {
+		layout.titleFields = selectFormatFields(format.GetTitleFields(), fieldByKey, used)
+	}
+	if len(layout.titleFields) == 0 {
+		layout.titleFields = []normalize.Field{fields[0]}
+		used[strings.TrimSpace(fields[0].Key)] = true
+	}
+	if format != nil && len(format.GetDetailFields()) > 0 {
+		layout.detailFields = selectFormatFields(format.GetDetailFields(), fieldByKey, used)
+	} else {
+		for _, field := range fields {
+			key := strings.TrimSpace(field.Key)
+			if key == "" || used[key] {
+				continue
+			}
+			layout.detailFields = append(layout.detailFields, field)
+			used[key] = true
+		}
+	}
+	return layout
+}
+
+func selectFormatFields(keys []string, fieldByKey map[string]normalize.Field, used map[string]bool) []normalize.Field {
+	selected := []normalize.Field{}
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" || used[key] {
+			continue
+		}
+		field, exists := fieldByKey[key]
+		if !exists {
+			continue
+		}
+		selected = append(selected, field)
+		used[key] = true
+	}
+	return selected
+}
+
+func titleText(fields []normalize.Field, fallback string) string {
+	parts := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if value := fieldValue(field); value != "" {
+			parts = append(parts, value)
+		}
+	}
+	if len(parts) == 0 {
+		return singleLine(fallback)
+	}
+	return strings.Join(parts, " ")
+}
+
+func fieldValue(field normalize.Field) string {
+	switch field.Kind {
+	case normalize.FieldKindText:
+		return singleLine(field.Text)
+	case normalize.FieldKindInteger:
+		return strconv.FormatInt(field.Integer, 10)
+	case normalize.FieldKindTimestamp:
+		return formatInlineTimestamp(field.Timestamp)
+	default:
+		return ""
+	}
+}
+
+func humanizeFieldKey(key string) string {
+	key = strings.TrimSpace(key)
+	key = strings.ReplaceAll(key, "_", " ")
+	key = strings.ReplaceAll(key, "-", " ")
+	return key
 }
 
 func firstTarget(targets []*searchv1.OpenTarget) *searchv1.OpenTarget {
@@ -463,7 +524,7 @@ func secondaryActions(providerID string, selector string, targets []*searchv1.Op
 	return secondaryActionsFiltered(providerID, selector, targets, nil)
 }
 
-func groupedSecondaryActions(providerID string, selector string, group groupedHits, targets []*searchv1.OpenTarget) string {
+func groupedSecondaryActions(providerID string, selector string, group groupedResults, targets []*searchv1.OpenTarget) string {
 	return secondaryActionsFiltered(providerID, selector, targets, func(target *searchv1.OpenTarget) bool {
 		return isRedundantGroupAction(group, target)
 	})
@@ -484,7 +545,7 @@ func secondaryActionsFiltered(providerID string, selector string, targets []*sea
 	return strings.Join(actions, " ")
 }
 
-func isRedundantGroupAction(group groupedHits, target *searchv1.OpenTarget) bool {
+func isRedundantGroupAction(group groupedResults, target *searchv1.OpenTarget) bool {
 	groupTarget := firstTarget(group.targets)
 	if groupFile, targetFile := fileTargetForOpen(groupTarget), fileTargetForOpen(target); groupFile != nil && targetFile != nil {
 		return sameFilePath(groupFile.GetPath(), targetFile.GetPath())
@@ -516,6 +577,9 @@ func targetLabel(target *searchv1.OpenTarget) string {
 }
 
 func recallOpenURL(providerID string, selector string, target *searchv1.OpenTarget) string {
+	if target == nil {
+		return ""
+	}
 	values := url.Values{}
 	values.Set("v", "1")
 	if providerID = strings.TrimSpace(providerID); providerID != "" {
@@ -536,9 +600,6 @@ func recallOpenURL(providerID string, selector string, target *searchv1.OpenTarg
 	} else if uriTarget := target.GetUri(); uriTarget != nil {
 		values.Set("type", "uri")
 		values.Set("uri", uriTarget.GetUri())
-		if timestamp := uriTarget.GetTimestamp(); timestamp != nil && timestamp.IsValid() {
-			values.Set("timestamp", timestamp.AsTime().UTC().Format(time.RFC3339Nano))
-		}
 	} else {
 		return ""
 	}
@@ -557,9 +618,9 @@ func singleLine(value string) string {
 }
 
 type machineResult struct {
-	Responses   []machineProviderResponse `json:"responses"`
-	BlendedHits []machineBlendedHit       `json:"blended_hits,omitempty"`
-	Failures    []machineFailure          `json:"failures,omitempty"`
+	Responses      []machineProviderResponse `json:"responses"`
+	BlendedResults []machineBlendedResult    `json:"blended_results,omitempty"`
+	Failures       []machineFailure          `json:"failures,omitempty"`
 }
 
 type machineProviderResponse struct {
@@ -567,11 +628,11 @@ type machineProviderResponse struct {
 	Response   json.RawMessage `json:"response"`
 }
 
-type machineBlendedHit struct {
+type machineBlendedResult struct {
 	ProviderID   string          `json:"provider_id"`
 	ProviderRank int             `json:"provider_rank"`
 	BlendedScore float64         `json:"blended_score"`
-	Hit          json.RawMessage `json:"hit"`
+	Result       json.RawMessage `json:"result"`
 }
 
 type machineFailure struct {

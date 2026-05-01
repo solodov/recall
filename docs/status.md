@@ -9,10 +9,10 @@ This file tracks plans managed in the markdown-backed layout.
 ### [20260501-structured-search-result-format](./20260501-structured-search-result-format.md)
 - title: Structured search results with provider-suggested field formatting
 - status: implementing
-- currentPhase: 2
-- currentPhaseTitle: Localize structured-result handling in core normalization
-- nextPhase: 3
-- nextPhaseTitle: Render from fields and declarative format hints
+- currentPhase: 3
+- currentPhaseTitle: Render from fields and declarative format hints
+- nextPhase: 4
+- nextPhaseTitle: Migrate every in-repo provider and provider-facing binary
 - totalPhases: 7
 - updated: 2026-05-01
 
