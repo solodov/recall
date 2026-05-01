@@ -74,7 +74,7 @@ providers {
 openers {
   id: "code-editor"
   sources: "example"
-  kinds: "code_match"
+  selectors: "file:content"
   target_types: "file"
   command: "editor"
   args: "+{line}"
