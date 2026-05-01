@@ -19,6 +19,8 @@ message SearchRequest {
 
 Recall-level selector routing and output format are orchestration or rendering controls. Providers receive `query`, optional `limit`, and advisory provider-local `selector_hints`; recall still applies authoritative selector filtering after provider responses. The selector taxonomy and structured result contract are documented in the proto comments.
 
+Structured results separate machine identity from display data: `Result.id` is stable provider-local identity, rendered titles/snippets/timestamps/statuses are typed `fields`, `format.title_fields` and `format.detail_fields` choose human output, and open targets describe where to open rather than what to display.
+
 ## Provider compatibility boundary
 
 This repository supports only the structured `SearchResponse.results` contract in `recall.search.v1`. Providers that still emit the old hit-shaped response (`SearchHit`, `hits`, `title`, `snippet`, or display timestamps on open targets) are incompatible and must be updated against `proto/recall/search/v1/search.proto`.
@@ -76,11 +78,17 @@ func (Provider) Search(ctx context.Context, request *searchv1.SearchRequest) (*s
 	results := []*searchv1.SearchResponse_Result{{
 		Id:       "note:1",
 		Selector: "note:content",
-		Fields: []*searchv1.SearchResponse_Result_Field{{
-			Key:   "title",
-			Value: &searchv1.SearchResponse_Result_Field_Text{Text: request.GetQuery()},
+		Fields: []*searchv1.SearchResponse_Result_Field{
+			{Key: "title", Value: &searchv1.SearchResponse_Result_Field_Text{Text: request.GetQuery()}},
+			{Key: "snippet", Value: &searchv1.SearchResponse_Result_Field_Text{Text: "Matched note body"}},
+		},
+		Targets: []*searchv1.OpenTarget{{
+			Target: &searchv1.OpenTarget_File{File: &searchv1.FileTarget{Path: "/tmp/note.md"}},
 		}},
-		Format: &searchv1.SearchResponse_Result_Format{TitleFields: []string{"title"}},
+		Format: &searchv1.SearchResponse_Result_Format{
+			TitleFields:  []string{"title"},
+			DetailFields: []string{"snippet"},
+		},
 	}}
 	if limit, ok := recallprovider.RequestedLimit(request); ok && len(results) > limit {
 		results = results[:limit]
@@ -140,7 +148,20 @@ printf 'query: "rollout"\nlimit: 10\n' |
   dist/recall-example-provider /recall.search.v1.SearchProvider/Search
 ```
 
-Because stdin is textproto, stdout is a textproto `SearchResponse`.
+Because stdin is textproto, stdout is a textproto `SearchResponse`. Provider responses use structured results, for example:
+
+```textproto
+results {
+  id: "rollout-note"
+  selector: "note:content"
+  fields { key: "title" text: "Sample rollout note" }
+  fields { key: "snippet" text: "Checklist for staged rollouts..." }
+  format {
+    title_fields: "title"
+    detail_fields: "snippet"
+  }
+}
+```
 
 ## Provider registry
 

@@ -1,5 +1,7 @@
 # Example recall registry entry for GitHub search through the gh CLI.
 # GitHub search is selector-hinted: use recall -s github:file:content, github:pr:content, etc.
+# Results are structured: GitHub numbers, titles, states, timestamps, snippets,
+# and counts are fields selected by format hints; URI targets are only for opening.
 providers {
   id: "github"
   enabled: true

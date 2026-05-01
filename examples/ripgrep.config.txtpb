@@ -1,5 +1,7 @@
 # Example recall registry entry for code search backed by ripgrep.
 # Copy into your recall config and update --root for your local checkout.
+# The provider emits structured results: path, line, column, and snippet are
+# fields selected by format hints; FileTarget carries only open-position data.
 providers {
   id: "code"
   enabled: true

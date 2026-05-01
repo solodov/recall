@@ -27,7 +27,7 @@ If no `--root` is configured, the provider searches its current working director
 
 Missing paths encountered during traversal are downgraded to warnings instead of failing the whole provider.
 
-Ripgrep hits include typed file targets with line and column metadata. Human output wraps result titles in OSC 8 `recall://` links that `recall-open` can dispatch to a configured editor.
+Ripgrep results use the structured contract in `proto/recall/search/v1/search.proto`. Display paths, line numbers, columns, and snippets are typed fields selected by `format`; file targets carry the absolute path plus optional line/column only so `recall-open` can dispatch to an editor.
 
 ## Query syntax
 
@@ -51,11 +51,20 @@ A path-only query can omit free text when it has an inclusion filter:
 in:router
 ```
 
-From `recall`, select `code:file:name` to request only path hits:
+From `recall`, select `code:file:name` to request only path results:
 
 ```bash
 recall -s code:file:name in:router
 ```
+
+## Structured result fields
+
+The provider emits fields and format hints instead of legacy title/snippet data:
+
+- `file:name` results expose `name`, `path`, and `directory`; title uses `name`, and the group is the parent directory.
+- `file:content` results expose `path`, `line`, `column`, and `snippet`; grouped human output uses `line` plus `snippet` as the row title.
+
+The same line/column values may also appear in `FileTarget` as open-position metadata. The fields are what recall renders; the target metadata is what editors use when opening a result.
 
 ## Direct provider debugging
 
@@ -84,6 +93,31 @@ Add advisory selector hints to debug provider-side narrowing directly:
 ```bash
 printf 'query: "foo type:go -in:test"\nselector_hints: "file:content"\n' |
   dist/recall-ripgrep-provider --root /path/to/repo /recall.search.v1.SearchProvider/Search
+```
+
+A matching content response is structured like this:
+
+```textproto
+results {
+  id: "file_content:/path/to/repo/main.go:4:1"
+  selector: "file:content"
+  fields { key: "path" text: "main.go" }
+  fields { key: "line" integer: 4 }
+  fields { key: "column" integer: 1 }
+  fields { key: "snippet" text: "foo()" }
+  targets { file { path: "/path/to/repo/main.go" line: 4 column: 1 } }
+  group {
+    key: "main.go"
+    title: "main.go"
+    targets { file { path: "/path/to/repo/main.go" } }
+  }
+  format {
+    title_fields: "line"
+    title_fields: "snippet"
+    detail_fields: "line"
+    detail_fields: "snippet"
+  }
+}
 ```
 
 List provider capabilities directly:

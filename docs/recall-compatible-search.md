@@ -4,6 +4,8 @@
 
 The operator registry lives at `$XDG_CONFIG_HOME/recall/config.txtpb`, falling back to `$HOME/.config/recall/config.txtpb`. Registry entries declare provider availability and transport only; they do not name a search method, filters, or indexing behavior.
 
+The authoritative implementer contract is `proto/recall/search/v1/search.proto`. Use its comments for selector taxonomy, result field rules, validation constraints, and open-target boundaries.
+
 ## Provider shape
 
 A new source should expose the search service from `proto/recall/search/v1/search.proto`:
@@ -23,11 +25,49 @@ message SearchRequest {
 
 The raw query is intentionally provider-owned. Bash history, calendar, local notes, remote APIs, and other providers can each map the same query text to the search semantics that make sense for that source.
 
-Selectors identify provider-local search surfaces. Providers advertise them through `ListCapabilities`, return them on every result, and may use `selector_hints` to avoid expensive unrequested work. Use the proto comments as the authoritative selector taxonomy reference; provider fields use provider-local `object:match` selectors such as `file:content`, while recall presents full `source:object:match` selectors to operators.
+Selectors identify provider-local search surfaces. Providers advertise them through `ListCapabilities`, return them on every result, and may use `selector_hints` to avoid expensive unrequested work. Provider fields use provider-local `object:match` selectors such as `file:content`, while recall presents full `source:object:match` selectors to operators.
 
 When `limit` is absent or zero, providers should return every reasonable match. A positive limit is a provider-local soft cap.
 
-Provider responses should return best-first structured results with stable IDs, selectors, typed fields, provider-suggested `format`, open targets, optional groups, optional native scores, and warnings. Rendered titles, snippets, timestamps, line numbers, statuses, and user-visible identifiers are fields. Native scores are preserved for diagnostics, but cross-source ranking uses provider-local result order and configured provider weight.
+## Structured result model
+
+Provider responses return best-first `SearchResponse.results` entries. Each result separates identity, display data, and opening data:
+
+- `id` is stable provider-local machine identity; do not include the recall provider id.
+- `selector` is the provider-local `object:match` surface that produced the result.
+- `fields` are typed facts for rendered and machine-readable data: titles, snippets, timestamps, line numbers, ticket keys, statuses, authors, and counts.
+- `format.title_fields` and `format.detail_fields` select which field keys appear in human output.
+- fields not selected by `format` still remain in JSON output.
+- `targets` and group targets are for opening only; do not put display-only data such as message timestamps in open targets.
+
+A complete textproto result looks like this:
+
+```textproto
+results {
+  id: "note:1"
+  selector: "note:content"
+  fields { key: "title" text: "Incident review notes" }
+  fields { key: "snippet" text: "Rollback succeeded after cache invalidation." }
+  fields { key: "updated_at" timestamp { seconds: 1777387800 } }
+  targets { file { path: "/tmp/incident-review.md" } }
+  group {
+    key: "notebook:operations"
+    title: "Operations notebook"
+    targets { file { path: "/tmp" } }
+  }
+  format {
+    title_fields: "title"
+    detail_fields: "updated_at"
+    detail_fields: "snippet"
+  }
+}
+warnings {
+  message: "served from a cached local index"
+  code: "cache_used"
+}
+```
+
+Native scores are preserved for diagnostics, but cross-source ranking uses provider-local result order and configured provider weight.
 
 ## Compatibility boundary
 
@@ -61,6 +101,8 @@ printf 'query: "rollout"\nselector_hints: "note:content"\n' |
   recall-example-provider /recall.search.v1.SearchProvider/Search
 ```
 
+Because stdin is textproto, stdout is a structured textproto `SearchResponse` with `results { fields { ... } format { ... } }`.
+
 Add `limit` only when you want to cap provider-local results:
 
 ```bash
@@ -81,9 +123,11 @@ Go providers should import the public SDK instead of `internal` packages:
 ```go
 import (
 	"context"
+	"time"
 
 	recallprovider "github.com/solodov/recall/provider"
 	searchv1 "github.com/solodov/recall/proto/recall/search/v1"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type Provider struct{}
@@ -93,15 +137,21 @@ func (Provider) ListCapabilities(context.Context, *searchv1.ListCapabilitiesRequ
 }
 
 func (Provider) Search(ctx context.Context, request *searchv1.SearchRequest) (*searchv1.SearchResponse, error) {
-	return &searchv1.SearchResponse{Results: []*searchv1.SearchResponse_Result{{
+	result := &searchv1.SearchResponse_Result{
 		Id:       "note:1",
 		Selector: "note:content",
-		Fields: []*searchv1.SearchResponse_Result_Field{{
-			Key:   "title",
-			Value: &searchv1.SearchResponse_Result_Field_Text{Text: request.GetQuery()},
-		}},
-		Format: &searchv1.SearchResponse_Result_Format{TitleFields: []string{"title"}},
-	}}}, nil
+		Fields: []*searchv1.SearchResponse_Result_Field{
+			{Key: "title", Value: &searchv1.SearchResponse_Result_Field_Text{Text: request.GetQuery()}},
+			{Key: "snippet", Value: &searchv1.SearchResponse_Result_Field_Text{Text: "Matched note body"}},
+			{Key: "updated_at", Value: &searchv1.SearchResponse_Result_Field_Timestamp{Timestamp: timestamppb.New(time.Now().UTC())}},
+		},
+		Targets: []*searchv1.OpenTarget{{Target: &searchv1.OpenTarget_File{File: &searchv1.FileTarget{Path: "/tmp/note.md"}}}},
+		Format: &searchv1.SearchResponse_Result_Format{
+			TitleFields:  []string{"title"},
+			DetailFields: []string{"updated_at", "snippet"},
+		},
+	}
+	return &searchv1.SearchResponse{Results: []*searchv1.SearchResponse_Result{result}}, nil
 }
 
 func main() {
@@ -121,7 +171,7 @@ Results and groups can expose typed open targets. `FileTarget` carries an absolu
 
 Future sources should integrate as independent providers instead of expanding the core request schema:
 
-- Bash history can search a local file, SQLite FTS table, or source-specific index and return command hits.
+- Bash history can search a local file, SQLite FTS table, or source-specific index and return command results.
 - Schedule providers can own recurrence expansion, time windows, attendees, and calendar authentication.
 - Message providers can own OAuth, API quotas, labels, snippets, and thread URIs.
 - API-backed sources can run as stdio providers or gRPC services while keeping credentials and caching outside recall core.
