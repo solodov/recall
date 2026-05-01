@@ -15,12 +15,12 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// ProviderResponse is a provider response after semantic validation. Hits and
-// warnings carry recall's configured provider ID because source identity is not
-// provider-owned data.
+// ProviderResponse is a provider response after semantic validation. Results
+// and warnings carry recall's configured provider ID because source identity is
+// not provider-owned data.
 type ProviderResponse struct {
 	ProviderID string
-	Hits       []Hit
+	Results    []Result
 	Warnings   []Warning
 
 	// Raw preserves the validated provider payload for future machine-readable
@@ -28,21 +28,21 @@ type ProviderResponse struct {
 	Raw *searchv1.SearchResponse
 }
 
-// Hit is one validated result annotated with its source provider and local rank.
-type Hit struct {
+// Result is one validated result annotated with its source provider and local rank.
+type Result struct {
 	ProviderID   string
 	ProviderRank int
-	Hit          *searchv1.SearchHit
+	Result       *searchv1.SearchResponse_Result
 }
 
 // Warning is one validated non-fatal diagnostic annotated with its source.
 type Warning struct {
 	ProviderID string
-	Warning    *searchv1.Warning
+	Warning    *searchv1.SearchResponse_Warning
 }
 
 // SearchResponse validates response semantics that protobuf cannot express and
-// returns annotated copies of hits and warnings.
+// returns annotated copies of results and warnings.
 func SearchResponse(providerID string, response *searchv1.SearchResponse) (ProviderResponse, error) {
 	providerID = strings.TrimSpace(providerID)
 	if providerID == "" {
@@ -53,8 +53,8 @@ func SearchResponse(providerID string, response *searchv1.SearchResponse) (Provi
 	}
 
 	var problems []error
-	for index, hit := range response.GetHits() {
-		problems = append(problems, validateHit(fmt.Sprintf("hits[%d]", index), hit)...)
+	for index, result := range response.GetResults() {
+		problems = append(problems, validateResult(fmt.Sprintf("results[%d]", index), result)...)
 	}
 	for index, warning := range response.GetWarnings() {
 		problems = append(problems, validateWarning(fmt.Sprintf("warnings[%d]", index), warning)...)
@@ -65,27 +65,27 @@ func SearchResponse(providerID string, response *searchv1.SearchResponse) (Provi
 
 	normalized := ProviderResponse{
 		ProviderID: providerID,
-		Hits:       make([]Hit, 0, len(response.GetHits())),
+		Results:    make([]Result, 0, len(response.GetResults())),
 		Warnings:   make([]Warning, 0, len(response.GetWarnings())),
 		Raw:        proto.Clone(response).(*searchv1.SearchResponse),
 	}
-	for index, hit := range response.GetHits() {
-		normalized.Hits = append(normalized.Hits, Hit{
+	for index, result := range response.GetResults() {
+		normalized.Results = append(normalized.Results, Result{
 			ProviderID:   providerID,
 			ProviderRank: index + 1,
-			Hit:          proto.Clone(hit).(*searchv1.SearchHit),
+			Result:       proto.Clone(result).(*searchv1.SearchResponse_Result),
 		})
 	}
 	for _, warning := range response.GetWarnings() {
 		normalized.Warnings = append(normalized.Warnings, Warning{
 			ProviderID: providerID,
-			Warning:    proto.Clone(warning).(*searchv1.Warning),
+			Warning:    proto.Clone(warning).(*searchv1.SearchResponse_Warning),
 		})
 	}
 	return normalized, nil
 }
 
-// FilterSelectors keeps only hits matching one of the provider-local selector
+// FilterSelectors keeps only results matching one of the provider-local selector
 // filters. An empty filter returns response unchanged because a provider-only
 // selector searches every surface from that provider.
 func FilterSelectors(response ProviderResponse, selectors []string) ProviderResponse {
@@ -94,20 +94,20 @@ func FilterSelectors(response ProviderResponse, selectors []string) ProviderResp
 	}
 	filtered := ProviderResponse{
 		ProviderID: response.ProviderID,
-		Hits:       make([]Hit, 0, len(response.Hits)),
+		Results:    make([]Result, 0, len(response.Results)),
 		Warnings:   append([]Warning{}, response.Warnings...),
 	}
-	filtered.Raw = &searchv1.SearchResponse{Warnings: make([]*searchv1.Warning, 0, len(response.Warnings))}
-	for _, hit := range response.Hits {
-		if hit.Hit == nil || !matchesSelectorFilter(hit.Hit.GetSelector(), selectors) {
+	filtered.Raw = &searchv1.SearchResponse{Warnings: make([]*searchv1.SearchResponse_Warning, 0, len(response.Warnings))}
+	for _, result := range response.Results {
+		if result.Result == nil || !matchesSelectorFilter(result.Result.GetSelector(), selectors) {
 			continue
 		}
-		filtered.Hits = append(filtered.Hits, hit)
-		filtered.Raw.Hits = append(filtered.Raw.Hits, proto.Clone(hit.Hit).(*searchv1.SearchHit))
+		filtered.Results = append(filtered.Results, result)
+		filtered.Raw.Results = append(filtered.Raw.Results, proto.Clone(result.Result).(*searchv1.SearchResponse_Result))
 	}
 	for _, warning := range response.Warnings {
 		if warning.Warning != nil {
-			filtered.Raw.Warnings = append(filtered.Raw.Warnings, proto.Clone(warning.Warning).(*searchv1.Warning))
+			filtered.Raw.Warnings = append(filtered.Raw.Warnings, proto.Clone(warning.Warning).(*searchv1.SearchResponse_Warning))
 		}
 	}
 	return filtered
@@ -127,36 +127,67 @@ func matchesSelectorFilter(selector string, filters []string) bool {
 	return false
 }
 
-func validateHit(location string, hit *searchv1.SearchHit) []error {
-	if hit == nil {
+func validateResult(location string, result *searchv1.SearchResponse_Result) []error {
+	if result == nil {
 		return []error{fmt.Errorf("%s is nil", location)}
 	}
 
 	var problems []error
-	if strings.TrimSpace(hit.GetId()) == "" {
+	if strings.TrimSpace(result.GetId()) == "" {
 		problems = append(problems, fmt.Errorf("%s.id is required", location))
 	}
-	if strings.TrimSpace(hit.GetSelector()) == "" {
+	if strings.TrimSpace(result.GetSelector()) == "" {
 		problems = append(problems, fmt.Errorf("%s.selector is required", location))
 	}
-	if strings.TrimSpace(hit.GetTitle()) == "" {
-		problems = append(problems, fmt.Errorf("%s.title is required", location))
-	}
-	if hit.Score != nil {
-		score := hit.GetScore()
+	if result.Score != nil {
+		score := result.GetScore()
 		if math.IsNaN(score) || math.IsInf(score, 0) {
 			problems = append(problems, fmt.Errorf("%s.score must be finite", location))
 		}
 	}
-	for index, target := range hit.GetTargets() {
+	problems = append(problems, validateFields(location+".fields", result.GetFields())...)
+	for index, target := range result.GetTargets() {
 		problems = append(problems, validateOpenTarget(fmt.Sprintf("%s.targets[%d]", location, index), target)...)
 	}
-	if group := hit.GetGroup(); group != nil {
+	if group := result.GetGroup(); group != nil {
 		problems = append(problems, validateGroup(location+".group", group)...)
 	}
-	if occurredAt := hit.GetOccurredAt(); occurredAt != nil {
-		if err := occurredAt.CheckValid(); err != nil {
-			problems = append(problems, fmt.Errorf("%s.occurred_at is invalid: %w", location, err))
+	return problems
+}
+
+func validateFields(location string, fields []*searchv1.SearchResponse_Result_Field) []error {
+	if len(fields) == 0 {
+		return []error{fmt.Errorf("%s must contain at least one field", location)}
+	}
+	var problems []error
+	seen := map[string]int{}
+	for index, field := range fields {
+		fieldLocation := fmt.Sprintf("%s[%d]", location, index)
+		if field == nil {
+			problems = append(problems, fmt.Errorf("%s is nil", fieldLocation))
+			continue
+		}
+		key := strings.TrimSpace(field.GetKey())
+		if key == "" {
+			problems = append(problems, fmt.Errorf("%s.key is required", fieldLocation))
+		} else if previous, exists := seen[key]; exists {
+			problems = append(problems, fmt.Errorf("%s.key %q duplicates %s[%d]", fieldLocation, key, location, previous))
+		} else {
+			seen[key] = index
+		}
+		switch value := field.GetValue().(type) {
+		case *searchv1.SearchResponse_Result_Field_Text:
+		case *searchv1.SearchResponse_Result_Field_Integer:
+		case *searchv1.SearchResponse_Result_Field_Timestamp:
+			if value.Timestamp == nil {
+				problems = append(problems, fmt.Errorf("%s.timestamp is required", fieldLocation))
+			} else if err := value.Timestamp.CheckValid(); err != nil {
+				problems = append(problems, fmt.Errorf("%s.timestamp is invalid: %w", fieldLocation, err))
+			}
+		case nil:
+			problems = append(problems, fmt.Errorf("%s.value is required", fieldLocation))
+		default:
+			problems = append(problems, fmt.Errorf("%s.value has unsupported type %T", fieldLocation, value))
 		}
 	}
 	return problems
@@ -212,11 +243,6 @@ func validateURITarget(location string, target *searchv1.UriTarget) []error {
 	if parsed.Scheme == "" {
 		return []error{fmt.Errorf("%s.uri must include a scheme", location)}
 	}
-	if timestamp := target.GetTimestamp(); timestamp != nil {
-		if err := timestamp.CheckValid(); err != nil {
-			return []error{fmt.Errorf("%s.timestamp is invalid: %w", location, err)}
-		}
-	}
 	return nil
 }
 
@@ -246,7 +272,7 @@ func validateFileTarget(location string, target *searchv1.FileTarget) []error {
 	return problems
 }
 
-func validateWarning(location string, warning *searchv1.Warning) []error {
+func validateWarning(location string, warning *searchv1.SearchResponse_Warning) []error {
 	if warning == nil {
 		return []error{fmt.Errorf("%s is nil", location)}
 	}

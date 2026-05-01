@@ -43,7 +43,7 @@ func TestSearchSelectsEnabledProvidersAndBuildsRequests(t *testing.T) {
 	}
 }
 
-func TestSearchRoutesRequestedSourcesAndLimitOverride(t *testing.T) {
+func TestSearchRoutesRequestedSelectorsAndLimitOverride(t *testing.T) {
 	cfg := &configv1.RecallConfig{Providers: []*configv1.Provider{
 		provider("source-a", true, 10),
 		provider("source-b", true, 30),
@@ -51,7 +51,7 @@ func TestSearchRoutesRequestedSourcesAndLimitOverride(t *testing.T) {
 	factory := &recordingFactory{}
 
 	result, err := Search(testRuntime(), cfg, "sample", Options{
-		Sources:       []string{"source-b"},
+		Selectors:     []string{"source-b"},
 		Limit:         5,
 		ClientFactory: factory.New,
 	})
@@ -63,23 +63,23 @@ func TestSearchRoutesRequestedSourcesAndLimitOverride(t *testing.T) {
 		t.Fatalf("responses = %#v, want only source-b", result.Responses)
 	}
 	if _, exists := factory.requests["source-a"]; exists {
-		t.Fatal("source-a was called despite source filter")
+		t.Fatal("source-a was called despite selector source filter")
 	}
 	if factory.requests["source-b"].GetLimit() != 5 {
 		t.Fatalf("source-b limit = %d, want override 5", factory.requests["source-b"].GetLimit())
 	}
 }
 
-func TestSearchAppliesKindAsPostFilterAndProviderHint(t *testing.T) {
+func TestSearchAppliesSelectorAsPostFilterAndProviderHint(t *testing.T) {
 	cfg := &configv1.RecallConfig{Providers: []*configv1.Provider{provider("example", true, 10)}}
-	factory := &recordingFactory{hits: map[string][]*searchv1.SearchHit{
+	factory := &recordingFactory{results: map[string][]*searchv1.SearchResponse_Result{
 		"example": {
-			{Id: "example:note", Selector: "note", Title: "Note"},
-			{Id: "example:event", Selector: "event", Title: "Event"},
+			result("example:note", "note:content", "Note"),
+			result("example:event", "event:content", "Event"),
 		},
 	}}
 
-	result, err := Search(testRuntime(), cfg, "sample query", Options{Kinds: []string{"event"}, ClientFactory: factory.New})
+	result, err := Search(testRuntime(), cfg, "sample query", Options{Selectors: []string{"example:event:content"}, ClientFactory: factory.New})
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
@@ -88,50 +88,50 @@ func TestSearchAppliesKindAsPostFilterAndProviderHint(t *testing.T) {
 	if request.GetQuery() != "sample query" || request.GetLimit() != 10 {
 		t.Fatalf("provider request = %#v, want original query and limit", request)
 	}
-	if !reflect.DeepEqual(request.GetSelectorHints(), []string{"event"}) {
-		t.Fatalf("kind hints = %#v, want event", request.GetSelectorHints())
+	if !reflect.DeepEqual(request.GetSelectorHints(), []string{"event:content"}) {
+		t.Fatalf("selector hints = %#v, want event:content", request.GetSelectorHints())
 	}
-	if len(result.Responses) != 1 || len(result.Responses[0].Hits) != 1 {
-		t.Fatalf("responses = %#v, want one filtered hit", result.Responses)
+	if len(result.Responses) != 1 || len(result.Responses[0].Results) != 1 {
+		t.Fatalf("responses = %#v, want one filtered result", result.Responses)
 	}
-	if result.Responses[0].Hits[0].Hit.GetId() != "example:event" {
-		t.Fatalf("filtered hit = %#v, want event hit", result.Responses[0].Hits[0].Hit)
+	if result.Responses[0].Results[0].Result.GetId() != "example:event" {
+		t.Fatalf("filtered result = %#v, want event result", result.Responses[0].Results[0].Result)
 	}
-	if len(result.BlendedHits) != 1 || result.BlendedHits[0].Normalized.Hit.GetId() != "example:event" {
-		t.Fatalf("blended hits = %#v, want only event hit", result.BlendedHits)
+	if len(result.BlendedResults) != 1 || result.BlendedResults[0].Normalized.Result.GetId() != "example:event" {
+		t.Fatalf("blended results = %#v, want only event result", result.BlendedResults)
 	}
 }
 
-func TestSearchExpandsPathAndContentKindAliases(t *testing.T) {
+func TestSearchMatchesSelectorPrefixes(t *testing.T) {
 	cfg := &configv1.RecallConfig{Providers: []*configv1.Provider{provider("code", true, 10)}}
-	factory := &recordingFactory{hits: map[string][]*searchv1.SearchHit{
+	factory := &recordingFactory{results: map[string][]*searchv1.SearchResponse_Result{
 		"code": {
-			{Id: "code:path", Selector: "path_match", Title: "Path"},
-			{Id: "code:content", Selector: "code_match", Title: "Content"},
-			{Id: "code:note", Selector: "note", Title: "Note"},
+			result("code:path", "file:name", "Path"),
+			result("code:content", "file:content", "Content"),
+			result("code:note", "note:content", "Note"),
 		},
 	}}
 
-	result, err := Search(testRuntime(), cfg, "sample query", Options{Kinds: []string{"path,content"}, ClientFactory: factory.New})
+	result, err := Search(testRuntime(), cfg, "sample query", Options{Selectors: []string{"code:file"}, ClientFactory: factory.New})
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
-	if len(result.Responses) != 1 || len(result.Responses[0].Hits) != 2 {
-		t.Fatalf("responses = %#v, want path and content hits", result.Responses)
+	if len(result.Responses) != 1 || len(result.Responses[0].Results) != 2 {
+		t.Fatalf("responses = %#v, want file results", result.Responses)
 	}
-	got := result.Responses[0].Hits[0].Hit.GetId() + "," + result.Responses[0].Hits[1].Hit.GetId()
+	got := result.Responses[0].Results[0].Result.GetId() + "," + result.Responses[0].Results[1].Result.GetId()
 	if got != "code:path,code:content" {
-		t.Fatalf("filtered ids = %q, want path and content", got)
+		t.Fatalf("filtered ids = %q, want file results", got)
 	}
-	if !reflect.DeepEqual(factory.requests["code"].GetSelectorHints(), []string{"path", "path_match", "content", "code_match"}) {
-		t.Fatalf("kind hints = %#v, want expanded path/content hints", factory.requests["code"].GetSelectorHints())
+	if !reflect.DeepEqual(factory.requests["code"].GetSelectorHints(), []string{"file"}) {
+		t.Fatalf("selector hints = %#v, want file prefix", factory.requests["code"].GetSelectorHints())
 	}
 }
 
-func TestSearchRejectsDuplicateKindFilter(t *testing.T) {
-	_, err := Search(testRuntime(), &configv1.RecallConfig{Providers: []*configv1.Provider{provider("code", true, 10)}}, "query", Options{Kinds: []string{"path,path"}, ClientFactory: (&recordingFactory{}).New})
-	if err == nil || !strings.Contains(err.Error(), "kind") {
-		t.Fatalf("Search error = %v, want duplicate kind error", err)
+func TestSearchRejectsDuplicateSelectorFilter(t *testing.T) {
+	_, err := Search(testRuntime(), &configv1.RecallConfig{Providers: []*configv1.Provider{provider("code", true, 10)}}, "query", Options{Selectors: []string{"code:file:name,code:file:name"}, ClientFactory: (&recordingFactory{}).New})
+	if err == nil || !strings.Contains(err.Error(), "selector") {
+		t.Fatalf("Search error = %v, want duplicate selector error", err)
 	}
 }
 
@@ -171,7 +171,7 @@ func TestSearchFailsWhenAllSelectedProvidersFail(t *testing.T) {
 func TestSearchRejectsUnknownSource(t *testing.T) {
 	cfg := &configv1.RecallConfig{Providers: []*configv1.Provider{provider("source-a", true, 10)}}
 
-	_, err := Search(testRuntime(), cfg, "query", Options{Sources: []string{"missing"}, ClientFactory: (&recordingFactory{}).New})
+	_, err := Search(testRuntime(), cfg, "query", Options{Selectors: []string{"missing"}, ClientFactory: (&recordingFactory{}).New})
 	if err == nil {
 		t.Fatal("Search succeeded with unknown source")
 	}
@@ -180,7 +180,7 @@ func TestSearchRejectsUnknownSource(t *testing.T) {
 type recordingFactory struct {
 	requests map[string]*searchv1.SearchRequest
 	failures map[string]error
-	hits     map[string][]*searchv1.SearchHit
+	results  map[string][]*searchv1.SearchResponse_Result
 }
 
 func (factory *recordingFactory) New(provider *configv1.Provider) (searchclient.Client, error) {
@@ -204,14 +204,16 @@ func (client fakeClient) Search(_ context.Context, request *searchv1.SearchReque
 	if err := client.factory.failures[client.providerID]; err != nil {
 		return nil, err
 	}
-	if hits := client.factory.hits[client.providerID]; len(hits) > 0 {
-		return &searchv1.SearchResponse{Hits: hits}, nil
+	if results := client.factory.results[client.providerID]; len(results) > 0 {
+		return &searchv1.SearchResponse{Results: results}, nil
 	}
-	return &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{{
-		Id:    client.providerID + ":1",
-		Selector:  "note",
-		Title: client.providerID + " result",
-	}}}, nil
+	return &searchv1.SearchResponse{Results: []*searchv1.SearchResponse_Result{
+		result(client.providerID+":1", "note:content", client.providerID+" result"),
+	}}, nil
+}
+
+func (client fakeClient) ListCapabilities(context.Context, *searchv1.ListCapabilitiesRequest) (*searchv1.ListCapabilitiesResponse, error) {
+	return &searchv1.ListCapabilitiesResponse{}, nil
 }
 
 func testRuntime() runtime.Context {
@@ -228,5 +230,16 @@ func provider(id string, enabled bool, limit uint32) *configv1.Provider {
 		Transports: []*configv1.Transport{{Transport: &configv1.Transport_Stdio{Stdio: &configv1.StdioTransport{
 			Command: "provider-" + id,
 		}}}},
+	}
+}
+
+func result(id string, selector string, title string) *searchv1.SearchResponse_Result {
+	return &searchv1.SearchResponse_Result{
+		Id:       id,
+		Selector: selector,
+		Fields: []*searchv1.SearchResponse_Result_Field{{
+			Key:   "title",
+			Value: &searchv1.SearchResponse_Result_Field_Text{Text: title},
+		}},
 	}
 }

@@ -33,12 +33,12 @@ func TestStdioClientSearchUsesTypedSearchPath(t *testing.T) {
 		t.Fatalf("Search returned error: %v", err)
 	}
 
-	hits := response.GetHits()
-	if len(hits) != 1 {
-		t.Fatalf("hit count = %d, want 1", len(hits))
+	results := response.GetResults()
+	if len(results) != 1 {
+		t.Fatalf("result count = %d, want 1", len(results))
 	}
-	if hits[0].GetId() != "example:sample note" || hits[0].GetTitle() != "Result for sample note" {
-		t.Fatalf("unexpected hit: %#v", hits[0])
+	if results[0].GetId() != "example:sample note" || results[0].GetFields()[0].GetText() != "Result for sample note" {
+		t.Fatalf("unexpected result: %#v", results[0])
 	}
 
 	log := readHelperLog(t, logPath)
@@ -174,7 +174,7 @@ func TestGRPCClientInvokesSearchFullMethodWithDeadline(t *testing.T) {
 	if !invoker.sawDeadline {
 		t.Fatal("gRPC search call did not receive a deadline")
 	}
-	if len(response.GetHits()) != 1 || response.GetHits()[0].GetId() != "grpc-hit" {
+	if len(response.GetResults()) != 1 || response.GetResults()[0].GetId() != "grpc-result" {
 		t.Fatalf("unexpected response: %#v", response)
 	}
 }
@@ -201,7 +201,7 @@ func (invoker *recordingInvoker) Invoke(ctx context.Context, method string, args
 	invoker.request = proto.Clone(request).(*searchv1.SearchRequest)
 	_, invoker.sawDeadline = ctx.Deadline()
 	response := reply.(*searchv1.SearchResponse)
-	response.Hits = []*searchv1.SearchHit{{Id: "grpc-hit", Selector: "note", Title: "gRPC hit"}}
+	response.Results = []*searchv1.SearchResponse_Result{structuredResult("grpc-result", "note:content", "gRPC result")}
 	return nil
 }
 
@@ -233,6 +233,17 @@ func readHelperLog(t *testing.T, path string) string {
 	return string(data)
 }
 
+func structuredResult(id string, selector string, title string) *searchv1.SearchResponse_Result {
+	return &searchv1.SearchResponse_Result{
+		Id:       id,
+		Selector: selector,
+		Fields: []*searchv1.SearchResponse_Result_Field{{
+			Key:   "title",
+			Value: &searchv1.SearchResponse_Result_Field_Text{Text: title},
+		}},
+	}
+}
+
 func serveSearchProviderHelper(t *testing.T) {
 	t.Helper()
 	rpcPath := os.Args[len(os.Args)-1]
@@ -256,12 +267,9 @@ func serveSearchProviderHelper(t *testing.T) {
 		}
 	}
 
-	response := &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{{
-		Id:      "example:" + request.GetQuery(),
-		Selector:    "note",
-		Title:   "Result for " + request.GetQuery(),
-		Snippet: proto.String("limit observed"),
-	}}}
+	response := &searchv1.SearchResponse{Results: []*searchv1.SearchResponse_Result{
+		structuredResult("example:"+request.GetQuery(), "note:content", "Result for "+request.GetQuery()),
+	}}
 	responseBytes, err := stdiorpc.MarshalPayload(format, response)
 	if err != nil {
 		t.Fatalf("marshal response: %v", err)

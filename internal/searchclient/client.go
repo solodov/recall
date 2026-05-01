@@ -20,11 +20,11 @@ import (
 )
 
 const (
-	SearchService                = searchv1.SearchProviderService
-	SearchMethod                 = searchv1.SearchProviderSearchMethod
-	SearchFullMethod             = searchv1.SearchProviderSearchPath
-	ListCapabilitiesMethod       = searchv1.SearchProviderListCapabilitiesMethod
-	ListCapabilitiesFullMethod   = searchv1.SearchProviderListCapabilitiesPath
+	SearchService              = searchv1.SearchProviderService
+	SearchMethod               = searchv1.SearchProviderSearchMethod
+	SearchFullMethod           = searchv1.SearchProviderSearchPath
+	ListCapabilitiesMethod     = searchv1.SearchProviderListCapabilitiesMethod
+	ListCapabilitiesFullMethod = searchv1.SearchProviderListCapabilitiesPath
 
 	defaultGRPCDialTimeout = 5 * time.Second
 )

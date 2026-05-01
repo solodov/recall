@@ -40,9 +40,9 @@ type Options struct {
 // Result contains successful provider responses and independent provider
 // failures from one query fan-out.
 type Result struct {
-	Responses   []ProviderResponse
-	BlendedHits []rank.Hit
-	Failures    []ProviderFailure
+	Responses      []ProviderResponse
+	BlendedResults []rank.Result
+	Failures       []ProviderFailure
 }
 
 // ProviderResponse is one successful provider response after validation and
@@ -114,8 +114,8 @@ func Search(run runtime.Context, cfg *configv1.RecallConfig, query string, optio
 	if len(result.Responses) == 0 && len(result.Failures) > 0 {
 		return result, errors.New("all selected providers failed")
 	}
-	result.BlendedHits = rank.Blend(result.Responses, providerWeights(selected))
-	run.Span().Set("response_count", len(result.Responses), "failure_count", len(result.Failures), "blended_hit_count", len(result.BlendedHits))
+	result.BlendedResults = rank.Blend(result.Responses, providerWeights(selected))
+	run.Span().Set("response_count", len(result.Responses), "failure_count", len(result.Failures), "blended_result_count", len(result.BlendedResults))
 	return result, nil
 }
 
@@ -173,8 +173,8 @@ func searchOneProvider(run runtime.Context, index int, selection providerSelecti
 		run.Log().WarnContext(run.Std(), "provider response rejected", "err", err)
 		return indexedProviderResult{index: index, failure: ProviderFailure{ProviderID: providerID, Err: err}}
 	}
-	span.Set("hit_count", len(normalized.Hits), "warning_count", len(normalized.Warnings))
-	run.Log().InfoContext(run.Std(), "provider search completed", "hit_count", len(normalized.Hits), "warning_count", len(normalized.Warnings))
+	span.Set("result_count", len(normalized.Results), "warning_count", len(normalized.Warnings))
+	run.Log().InfoContext(run.Std(), "provider search completed", "result_count", len(normalized.Results), "warning_count", len(normalized.Warnings))
 	return indexedProviderResult{index: index, response: normalized, selectorFilters: append([]string{}, selection.SelectorFilters...)}
 }
 
@@ -211,9 +211,9 @@ func selectProviders(providers []*configv1.Provider, selectors []string) ([]prov
 			continue
 		}
 		selected = append(selected, providerSelection{
-			Provider:         provider,
-			SelectorHints:    append([]string{}, filter.hints...),
-			SelectorFilters:  append([]string{}, filter.filters...),
+			Provider:        provider,
+			SelectorHints:   append([]string{}, filter.hints...),
+			SelectorFilters: append([]string{}, filter.filters...),
 		})
 	}
 	return selected, nil

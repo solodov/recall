@@ -15,28 +15,28 @@ const (
 	ReciprocalRankK = 60.0
 )
 
-// Hit is one normalized hit annotated with recall's cross-provider blended
-// score. Provider-native SearchHit.score remains provider-owned diagnostic data.
-type Hit struct {
-	Normalized     normalize.Hit
+// Result is one normalized result annotated with recall's cross-provider blended
+// score. Provider-native Result.score remains provider-owned diagnostic data.
+type Result struct {
+	Normalized     normalize.Result
 	ProviderWeight float64
 	BlendedScore   float64
 }
 
-// Blend orders hits by provider-local result position and configured provider
-// weight. Provider-native hit scores are intentionally ignored because they are
-// not comparable across different search backends.
-func Blend(responses []normalize.ProviderResponse, providerWeights map[string]float64) []Hit {
-	blended := make([]Hit, 0, totalHitCount(responses))
+// Blend orders results by provider-local result position and configured provider
+// weight. Provider-native result scores are intentionally ignored because they
+// are not comparable across different search backends.
+func Blend(responses []normalize.ProviderResponse, providerWeights map[string]float64) []Result {
+	blended := make([]Result, 0, totalResultCount(responses))
 	for _, response := range responses {
 		weight := usableWeight(providerWeights[response.ProviderID])
-		for index, normalizedHit := range response.Hits {
-			providerRank := normalizedHit.ProviderRank
+		for index, normalizedResult := range response.Results {
+			providerRank := normalizedResult.ProviderRank
 			if providerRank <= 0 {
 				providerRank = index + 1
 			}
-			blended = append(blended, Hit{
-				Normalized:     normalizedHit,
+			blended = append(blended, Result{
+				Normalized:     normalizedResult,
 				ProviderWeight: weight,
 				BlendedScore:   weight / (ReciprocalRankK + float64(providerRank)),
 			})
@@ -48,10 +48,10 @@ func Blend(responses []normalize.ProviderResponse, providerWeights map[string]fl
 	return blended
 }
 
-func totalHitCount(responses []normalize.ProviderResponse) int {
+func totalResultCount(responses []normalize.ProviderResponse) int {
 	total := 0
 	for _, response := range responses {
-		total += len(response.Hits)
+		total += len(response.Results)
 	}
 	return total
 }
