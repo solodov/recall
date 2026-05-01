@@ -17,7 +17,13 @@ message SearchRequest {
 }
 ```
 
-Recall-level selector routing and output format are orchestration or rendering controls. Providers receive `query`, optional `limit`, and advisory provider-local `selector_hints`; recall still applies authoritative selector filtering after provider responses. The selector taxonomy is documented in the proto comments.
+Recall-level selector routing and output format are orchestration or rendering controls. Providers receive `query`, optional `limit`, and advisory provider-local `selector_hints`; recall still applies authoritative selector filtering after provider responses. The selector taxonomy and structured result contract are documented in the proto comments.
+
+## Provider compatibility boundary
+
+This repository supports only the structured `SearchResponse.results` contract in `recall.search.v1`. Providers that still emit the old hit-shaped response (`SearchHit`, `hits`, `title`, `snippet`, or display timestamps on open targets) are incompatible and must be updated against `proto/recall/search/v1/search.proto`.
+
+There is no legacy decoding path, compatibility adapter, or mixed old/new validation mode. External and sibling providers are outside this repository's migration scope; their owners should update them independently. Use the first-party providers in this repo as acceptance fixtures instead of relying on a personal config that may include unmigrated external providers.
 
 ## Stdio provider protocol
 
@@ -67,11 +73,19 @@ func (Provider) ListCapabilities(context.Context, *searchv1.ListCapabilitiesRequ
 }
 
 func (Provider) Search(ctx context.Context, request *searchv1.SearchRequest) (*searchv1.SearchResponse, error) {
-	hits := []*searchv1.SearchHit{{Id: "example:1", Selector: "note:content", Title: request.GetQuery()}}
-	if limit, ok := recallprovider.RequestedLimit(request); ok && len(hits) > limit {
-		hits = hits[:limit]
+	results := []*searchv1.SearchResponse_Result{{
+		Id:       "note:1",
+		Selector: "note:content",
+		Fields: []*searchv1.SearchResponse_Result_Field{{
+			Key:   "title",
+			Value: &searchv1.SearchResponse_Result_Field_Text{Text: request.GetQuery()},
+		}},
+		Format: &searchv1.SearchResponse_Result_Format{TitleFields: []string{"title"}},
+	}}
+	if limit, ok := recallprovider.RequestedLimit(request); ok && len(results) > limit {
+		results = results[:limit]
 	}
-	return &searchv1.SearchResponse{Hits: hits}, nil
+	return &searchv1.SearchResponse{Results: results}, nil
 }
 
 func main() {

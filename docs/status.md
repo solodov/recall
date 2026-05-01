@@ -9,10 +9,10 @@ This file tracks plans managed in the markdown-backed layout.
 ### [20260501-structured-search-result-format](./20260501-structured-search-result-format.md)
 - title: Structured search results with provider-suggested field formatting
 - status: implementing
-- currentPhase: 4
-- currentPhaseTitle: Migrate every in-repo provider and provider-facing binary
-- nextPhase: 5
-- nextPhaseTitle: Define the external provider boundary in docs only
+- currentPhase: 5
+- currentPhaseTitle: Define the external provider boundary in docs only
+- nextPhase: 6
+- nextPhaseTitle: Refresh docs, SDK examples, and debugging snippets
 - totalPhases: 7
 - updated: 2026-05-01
 

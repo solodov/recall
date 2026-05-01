@@ -23,11 +23,19 @@ message SearchRequest {
 
 The raw query is intentionally provider-owned. Bash history, calendar, local notes, remote APIs, and other providers can each map the same query text to the search semantics that make sense for that source.
 
-Selectors identify provider-local search surfaces. Providers advertise them through `ListCapabilities`, return them on every hit, and may use `selector_hints` to avoid expensive unrequested work. Use the proto comments as the authoritative selector taxonomy reference; provider fields use provider-local `object:match` selectors such as `file:content`, while recall presents full `source:object:match` selectors to operators.
+Selectors identify provider-local search surfaces. Providers advertise them through `ListCapabilities`, return them on every result, and may use `selector_hints` to avoid expensive unrequested work. Use the proto comments as the authoritative selector taxonomy reference; provider fields use provider-local `object:match` selectors such as `file:content`, while recall presents full `source:object:match` selectors to operators.
 
 When `limit` is absent or zero, providers should return every reasonable match. A positive limit is a provider-local soft cap.
 
-Provider responses should return best-first hits with stable IDs, selectors, titles, open targets, optional groups, optional source-domain timestamps, optional native scores, and warnings. Native scores are preserved for diagnostics, but cross-source ranking uses provider-local result order and configured provider weight.
+Provider responses should return best-first structured results with stable IDs, selectors, typed fields, provider-suggested `format`, open targets, optional groups, optional native scores, and warnings. Rendered titles, snippets, timestamps, line numbers, statuses, and user-visible identifiers are fields. Native scores are preserved for diagnostics, but cross-source ranking uses provider-local result order and configured provider weight.
+
+## Compatibility boundary
+
+`recall.search.v1` now accepts only the structured `SearchResponse.results` shape documented in `proto/recall/search/v1/search.proto`. Providers that still emit the old hit-shaped response (`SearchHit`, `hits`, `title`, `snippet`, `occurred_at`, or display-only timestamp data on `UriTarget`) are incompatible.
+
+There is no legacy decoder, compatibility shim, request/response translator, or mixed old/new validation path in this repository. External and sibling providers are not migrated here; their owners should update them independently from the proto contract and the first-party provider examples.
+
+Validation for this repo should use in-repo configs and first-party providers. Do not rely on an operator's personal config as an acceptance check when it may include external providers that have not migrated yet.
 
 ## Stdio providers
 
@@ -85,7 +93,15 @@ func (Provider) ListCapabilities(context.Context, *searchv1.ListCapabilitiesRequ
 }
 
 func (Provider) Search(ctx context.Context, request *searchv1.SearchRequest) (*searchv1.SearchResponse, error) {
-	return &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{{Id: "note:1", Selector: "note:content", Title: request.GetQuery()}}}, nil
+	return &searchv1.SearchResponse{Results: []*searchv1.SearchResponse_Result{{
+		Id:       "note:1",
+		Selector: "note:content",
+		Fields: []*searchv1.SearchResponse_Result_Field{{
+			Key:   "title",
+			Value: &searchv1.SearchResponse_Result_Field_Text{Text: request.GetQuery()},
+		}},
+		Format: &searchv1.SearchResponse_Result_Format{TitleFields: []string{"title"}},
+	}}}, nil
 }
 
 func main() {
@@ -97,7 +113,7 @@ The SDK serves one `SearchProvider` stdio call, auto-detects binary protobuf or 
 
 ## Open targets
 
-Hits and groups can expose typed open targets. `FileTarget` carries an absolute path plus optional 1-based line and column, while `UriTarget` carries a generic URI. Human output wraps primary targets in OSC 8 `recall://open?...` links so a terminal helper can pass the URL to `recall-open`.
+Results and groups can expose typed open targets. `FileTarget` carries an absolute path plus optional 1-based line and column, while `UriTarget` carries a generic URI. Human output wraps primary targets in OSC 8 `recall://open?...` links so a terminal helper can pass the URL to `recall-open`.
 
 `recall-open` loads the same registry and matches optional `openers` by source, selector, target type, and URI scheme. Opener commands are local operator config and are executed without a shell; if no opener matches, `recall-open` falls back to the platform opener on the original path or URI. A generic `target_types: "file"` opener can act as the default editor for every file link, including grouped source labels that link back to the provider block in the loaded registry. Source- or selector-specific openers remain supported and override generic defaults when both match.
 
