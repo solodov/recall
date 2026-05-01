@@ -37,7 +37,7 @@ type RunOptions struct {
 type RunResult struct {
 	Matches     []Match
 	PathMatches []PathMatch
-	Warnings    []*searchv1.Warning
+	Warnings    []*searchv1.SearchResponse_Warning
 }
 
 // Match is the provider-owned representation of one ripgrep JSON match event.
@@ -199,7 +199,7 @@ func (runner Runner) Run(ctx context.Context, options RunOptions) (RunResult, er
 	return result, nil
 }
 
-func (runner Runner) listFiles(ctx context.Context, binary string, options RunOptions) ([]string, []*searchv1.Warning, error) {
+func (runner Runner) listFiles(ctx context.Context, binary string, options RunOptions) ([]string, []*searchv1.SearchResponse_Warning, error) {
 	args, err := BuildFilesArgs(options)
 	if err != nil {
 		return nil, nil, err
@@ -517,8 +517,8 @@ func (event ripgrepEvent) toMatch() (Match, error) {
 	return match, nil
 }
 
-func missingPathWarnings(stderr string) ([]*searchv1.Warning, bool) {
-	var warnings []*searchv1.Warning
+func missingPathWarnings(stderr string) ([]*searchv1.SearchResponse_Warning, bool) {
+	var warnings []*searchv1.SearchResponse_Warning
 	for _, line := range strings.Split(stderr, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -527,7 +527,7 @@ func missingPathWarnings(stderr string) ([]*searchv1.Warning, bool) {
 		if !isMissingPathDiagnostic(line) {
 			return nil, false
 		}
-		warnings = append(warnings, &searchv1.Warning{
+		warnings = append(warnings, &searchv1.SearchResponse_Warning{
 			Message: line,
 			Code:    proto.String(WarningPathMissing),
 		})

@@ -52,7 +52,7 @@ func (provider *Provider) ListCapabilities(context.Context, *searchv1.ListCapabi
 }
 
 // Search runs only configured selectors requested through advisory selector
-// hints and maps GitHub results into recall URI hits.
+// hints and maps GitHub results into structured recall URI results.
 func (provider *Provider) Search(ctx context.Context, request *searchv1.SearchRequest) (*searchv1.SearchResponse, error) {
 	if request == nil {
 		return nil, fmt.Errorf("search request is nil")
@@ -72,9 +72,9 @@ func (provider *Provider) Search(ctx context.Context, request *searchv1.SearchRe
 		runner = Runner{Binary: provider.gitHubPath}
 	}
 
-	hits := []*searchv1.SearchHit{}
+	results := []*searchv1.SearchResponse_Result{}
 	for _, selector := range selectors {
-		selectorLimit := remainingLimit(limit, len(hits))
+		selectorLimit := remainingLimit(limit, len(results))
 		if limit > 0 && selectorLimit == 0 {
 			break
 		}
@@ -82,12 +82,12 @@ func (provider *Provider) Search(ctx context.Context, request *searchv1.SearchRe
 		if err != nil {
 			return nil, err
 		}
-		hits = append(hits, HitsFromItems(selector, items)...)
+		results = append(results, ResultsFromItems(selector, items)...)
 	}
-	if limit > 0 && len(hits) > limit {
-		hits = hits[:limit]
+	if limit > 0 && len(results) > limit {
+		results = results[:limit]
 	}
-	return &searchv1.SearchResponse{Hits: hits}, nil
+	return &searchv1.SearchResponse{Results: results}, nil
 }
 
 func (provider *Provider) selectorsFromHints(hints map[string]bool) []Selector {

@@ -3,6 +3,7 @@ package provider
 import (
 	"bytes"
 	"context"
+	"reflect"
 	"testing"
 
 	searchv1 "github.com/solodov/recall/proto/recall/search/v1"
@@ -22,7 +23,15 @@ func TestServeSearchWithOptionsDecodesTextprotoAndMirrorsResponse(t *testing.T) 
 				t.Fatalf("query = %q, want sample", request.GetQuery())
 			}
 			_, sawUnlimited = RequestedLimit(request)
-			return &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{{Id: "hit:1", Selector: "note:content", Title: "Sample"}}}, nil
+			return &searchv1.SearchResponse{Results: []*searchv1.SearchResponse_Result{{
+				Id:       "result:1",
+				Selector: "note:content",
+				Fields: []*searchv1.SearchResponse_Result_Field{{
+					Key:   "title",
+					Value: &searchv1.SearchResponse_Result_Field_Text{Text: "Sample"},
+				}},
+				Format: &searchv1.SearchResponse_Result_Format{TitleFields: []string{"title"}},
+			}}}, nil
 		},
 	}
 
@@ -42,8 +51,11 @@ func TestServeSearchWithOptionsDecodesTextprotoAndMirrorsResponse(t *testing.T) 
 	if err := prototext.Unmarshal(stdout.Bytes(), response); err != nil {
 		t.Fatalf("response was not textproto: %v", err)
 	}
-	if response.GetHits()[0].GetId() != "hit:1" {
+	if len(response.GetResults()) != 1 || response.GetResults()[0].GetId() != "result:1" || response.GetResults()[0].GetFields()[0].GetText() != "Sample" {
 		t.Fatalf("response = %#v", response)
+	}
+	if !reflect.DeepEqual(response.GetResults()[0].GetFormat().GetTitleFields(), []string{"title"}) {
+		t.Fatalf("format = %#v", response.GetResults()[0].GetFormat())
 	}
 }
 

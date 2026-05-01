@@ -3,6 +3,7 @@ package exampleprovider
 import (
 	"bytes"
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -39,8 +40,11 @@ func TestServeSearchTextprotoAutoDetectsAndMirrorsInput(t *testing.T) {
 	if err := prototext.Unmarshal(stdout.Bytes(), response); err != nil {
 		t.Fatalf("unmarshal textproto search response: %v", err)
 	}
-	if len(response.GetHits()) != 1 || response.GetHits()[0].GetId() != "example:planning-session" {
-		t.Fatalf("unexpected textproto hits: %#v", response.GetHits())
+	if len(response.GetResults()) != 1 || response.GetResults()[0].GetId() != "planning-session" {
+		t.Fatalf("unexpected textproto results: %#v", response.GetResults())
+	}
+	if got := resultText(t, response.GetResults()[0], "summary"); got != "Fixture planning session" {
+		t.Fatalf("summary field = %q", got)
 	}
 }
 
@@ -68,27 +72,27 @@ func TestSearchRejectsInvalidRequest(t *testing.T) {
 }
 
 func TestSearchUsesSelectorHints(t *testing.T) {
-	response, err := New().Search(context.Background(), &searchv1.SearchRequest{Query: "example", SelectorHints: []string{"note"}})
+	response, err := New().Search(context.Background(), &searchv1.SearchRequest{Query: "a", SelectorHints: []string{"note"}})
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
-	if len(response.GetHits()) != 2 {
-		t.Fatalf("hit count = %d, want note-only fixture hits", len(response.GetHits()))
+	if len(response.GetResults()) != 2 {
+		t.Fatalf("result count = %d, want note-only fixture results", len(response.GetResults()))
 	}
-	for _, hit := range response.GetHits() {
-		if hit.GetSelector() != "note:content" {
-			t.Fatalf("hit selector = %q, want note:content", hit.GetSelector())
+	for _, result := range response.GetResults() {
+		if result.GetSelector() != "note:content" {
+			t.Fatalf("result selector = %q, want note:content", result.GetSelector())
 		}
 	}
 }
 
 func TestSearchWithoutLimitReturnsEveryMatch(t *testing.T) {
-	response, err := New().Search(context.Background(), &searchv1.SearchRequest{Query: "example"})
+	response, err := New().Search(context.Background(), &searchv1.SearchRequest{Query: "a"})
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
-	if len(response.GetHits()) != 3 {
-		t.Fatalf("hit count = %d, want all fixture hits", len(response.GetHits()))
+	if len(response.GetResults()) != 3 {
+		t.Fatalf("result count = %d, want all fixture results", len(response.GetResults()))
 	}
 }
 
@@ -114,30 +118,56 @@ func searchPath(t *testing.T) string {
 
 func assertExampleSearchResponse(t *testing.T, response *searchv1.SearchResponse) {
 	t.Helper()
-	hits := response.GetHits()
-	if len(hits) != 1 {
-		t.Fatalf("hit count = %d, want 1", len(hits))
+	results := response.GetResults()
+	if len(results) != 1 {
+		t.Fatalf("result count = %d, want 1", len(results))
 	}
-	hit := hits[0]
-	if hit.GetId() != "example:rollout-note" {
-		t.Fatalf("hit id = %q, want example:rollout-note", hit.GetId())
+	result := results[0]
+	if result.GetId() != "rollout-note" {
+		t.Fatalf("result id = %q, want rollout-note", result.GetId())
 	}
-	if hit.GetSelector() != "note:content" || hit.GetTitle() != "Sample rollout note" || hit.GetSnippet() == "" {
-		t.Fatalf("hit missing required display fields: %#v", hit)
+	if result.GetSelector() != "note:content" || resultText(t, result, "title") != "Sample rollout note" || resultText(t, result, "snippet") == "" {
+		t.Fatalf("result missing required display fields: %#v", result)
 	}
-	if hit.Score == nil {
-		t.Fatal("hit score is nil")
+	if result.Score == nil {
+		t.Fatal("result score is nil")
 	}
-	if len(hit.GetTargets()) < 2 || hit.GetTargets()[0].GetFile().GetPath() == "" || hit.GetTargets()[1].GetUri().GetUri() == "" {
-		t.Fatalf("hit targets do not exercise primary and secondary open targets: %#v", hit.GetTargets())
+	if !reflect.DeepEqual(result.GetFormat().GetTitleFields(), []string{"title"}) || !reflect.DeepEqual(result.GetFormat().GetDetailFields(), []string{"updated_at", "snippet"}) {
+		t.Fatalf("format = %#v, want title plus updated/snippet details", result.GetFormat())
 	}
-	if hit.GetGroup().GetKey() == "" || hit.GetGroup().GetTitle() == "" || len(hit.GetGroup().GetTargets()) == 0 {
-		t.Fatalf("hit group does not exercise grouping fields: %#v", hit.GetGroup())
+	if resultTimestamp(t, result, "updated_at") == nil {
+		t.Fatalf("updated_at timestamp field is missing or invalid: %#v", result.GetFields())
 	}
-	if hit.GetOccurredAt() == nil || !hit.GetOccurredAt().IsValid() {
-		t.Fatalf("occurred_at is invalid: %#v", hit.GetOccurredAt())
+	if len(result.GetTargets()) < 2 || result.GetTargets()[0].GetFile().GetPath() == "" || result.GetTargets()[1].GetUri().GetUri() == "" {
+		t.Fatalf("result targets do not exercise primary and secondary open targets: %#v", result.GetTargets())
+	}
+	if result.GetGroup().GetKey() == "" || result.GetGroup().GetTitle() == "" || len(result.GetGroup().GetTargets()) == 0 {
+		t.Fatalf("result group does not exercise grouping fields: %#v", result.GetGroup())
 	}
 	if len(response.GetWarnings()) != 1 || response.GetWarnings()[0].GetCode() != "example_fixture" {
 		t.Fatalf("warnings = %#v, want example_fixture warning", response.GetWarnings())
 	}
+}
+
+func resultText(t *testing.T, result *searchv1.SearchResponse_Result, key string) string {
+	t.Helper()
+	for _, field := range result.GetFields() {
+		if field.GetKey() == key {
+			return field.GetText()
+		}
+	}
+	t.Fatalf("missing text field %q in %#v", key, result.GetFields())
+	return ""
+}
+
+func resultTimestamp(t *testing.T, result *searchv1.SearchResponse_Result, key string) proto.Message {
+	t.Helper()
+	for _, field := range result.GetFields() {
+		if field.GetKey() == key {
+			if timestamp := field.GetTimestamp(); timestamp != nil && timestamp.IsValid() {
+				return timestamp
+			}
+		}
+	}
+	return nil
 }

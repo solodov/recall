@@ -54,11 +54,15 @@ providers {
 		Responses []struct {
 			ProviderID string `json:"provider_id"`
 			Response   struct {
-				Hits []struct {
+				Results []struct {
 					ID       string `json:"id"`
 					Selector string `json:"selector"`
-					Title    string `json:"title"`
-					Targets  []struct {
+					Fields   []struct {
+						Key       string `json:"key"`
+						Text      string `json:"text"`
+						Timestamp string `json:"timestamp"`
+					} `json:"fields"`
+					Targets []struct {
 						URI struct {
 							URI string `json:"uri"`
 						} `json:"uri"`
@@ -70,17 +74,21 @@ providers {
 						Key   string `json:"key"`
 						Title string `json:"title"`
 					} `json:"group"`
-				} `json:"hits"`
+					Format struct {
+						TitleFields  []string `json:"title_fields"`
+						DetailFields []string `json:"detail_fields"`
+					} `json:"format"`
+				} `json:"results"`
 			} `json:"response"`
 		} `json:"responses"`
-		BlendedHits []struct {
+		BlendedResults []struct {
 			ProviderID   string  `json:"provider_id"`
 			ProviderRank int     `json:"provider_rank"`
 			BlendedScore float64 `json:"blended_score"`
-			Hit          struct {
+			Result       struct {
 				ID string `json:"id"`
-			} `json:"hit"`
-		} `json:"blended_hits"`
+			} `json:"result"`
+		} `json:"blended_results"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatalf("unmarshal recall JSON output: %v\n%s", err, stdout.String())
@@ -88,24 +96,31 @@ providers {
 	if len(payload.Responses) != 1 || payload.Responses[0].ProviderID != "example" {
 		t.Fatalf("responses = %#v, want one example provider response", payload.Responses)
 	}
-	hits := payload.Responses[0].Response.Hits
-	if len(hits) != 1 {
-		t.Fatalf("provider hit count = %d, want 1", len(hits))
+	results := payload.Responses[0].Response.Results
+	if len(results) != 1 {
+		t.Fatalf("provider result count = %d, want 1", len(results))
 	}
-	if hits[0].ID != "example:rollout-note" || hits[0].Selector != "note:content" || hits[0].Title != "Sample rollout note" {
-		t.Fatalf("sample provider hit did not preserve search contract fields: %#v", hits[0])
+	result := results[0]
+	if result.ID != "rollout-note" || result.Selector != "note:content" || fieldText(result.Fields, "title") != "Sample rollout note" {
+		t.Fatalf("sample provider result did not preserve search contract fields: %#v", result)
 	}
-	if len(hits[0].Targets) < 2 || hits[0].Targets[0].File.Path == "" || hits[0].Targets[1].URI.URI == "" {
-		t.Fatalf("sample provider hit did not exercise primary and secondary open targets: %#v", hits[0].Targets)
+	if fieldText(result.Fields, "snippet") == "" || fieldTimestamp(result.Fields, "updated_at") == "" {
+		t.Fatalf("sample provider result did not expose snippet and updated_at fields: %#v", result.Fields)
 	}
-	if hits[0].Group.Key != "fixture:procedures" || hits[0].Group.Title != "Procedure notes" {
-		t.Fatalf("sample provider hit did not exercise grouping: %#v", hits[0].Group)
+	if len(result.Format.TitleFields) != 1 || result.Format.TitleFields[0] != "title" || len(result.Format.DetailFields) != 2 || result.Format.DetailFields[0] != "updated_at" || result.Format.DetailFields[1] != "snippet" {
+		t.Fatalf("sample provider result did not expose display format: %#v", result.Format)
 	}
-	if len(payload.BlendedHits) != 1 || payload.BlendedHits[0].ProviderID != "example" || payload.BlendedHits[0].ProviderRank != 1 || payload.BlendedHits[0].Hit.ID != "example:rollout-note" {
-		t.Fatalf("blended hits = %#v, want one ranked example hit", payload.BlendedHits)
+	if len(result.Targets) < 2 || result.Targets[0].File.Path == "" || result.Targets[1].URI.URI == "" {
+		t.Fatalf("sample provider result did not exercise primary and secondary open targets: %#v", result.Targets)
 	}
-	if payload.BlendedHits[0].BlendedScore <= 0 {
-		t.Fatalf("blended score = %f, want positive", payload.BlendedHits[0].BlendedScore)
+	if result.Group.Key != "fixture:procedures" || result.Group.Title != "Procedure notes" {
+		t.Fatalf("sample provider result did not exercise grouping: %#v", result.Group)
+	}
+	if len(payload.BlendedResults) != 1 || payload.BlendedResults[0].ProviderID != "example" || payload.BlendedResults[0].ProviderRank != 1 || payload.BlendedResults[0].Result.ID != "rollout-note" {
+		t.Fatalf("blended results = %#v, want one ranked example result", payload.BlendedResults)
+	}
+	if payload.BlendedResults[0].BlendedScore <= 0 {
+		t.Fatalf("blended score = %f, want positive", payload.BlendedResults[0].BlendedScore)
 	}
 
 	stdout.Reset()
@@ -119,6 +134,32 @@ providers {
 			t.Fatalf("provider list output %q does not contain %q", listOutput, want)
 		}
 	}
+}
+
+func fieldText(fields []struct {
+	Key       string `json:"key"`
+	Text      string `json:"text"`
+	Timestamp string `json:"timestamp"`
+}, key string) string {
+	for _, field := range fields {
+		if field.Key == key {
+			return field.Text
+		}
+	}
+	return ""
+}
+
+func fieldTimestamp(fields []struct {
+	Key       string `json:"key"`
+	Text      string `json:"text"`
+	Timestamp string `json:"timestamp"`
+}, key string) string {
+	for _, field := range fields {
+		if field.Key == key {
+			return field.Timestamp
+		}
+	}
+	return ""
 }
 
 func buildSampleProvider(t *testing.T) string {

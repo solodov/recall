@@ -30,7 +30,7 @@ type RootResolver struct {
 // for configured roots that were skipped.
 type RootResolution struct {
 	Roots    []string
-	Warnings []*searchv1.Warning
+	Warnings []*searchv1.SearchResponse_Warning
 }
 
 // ResolveRoots returns existing file or directory roots. Missing roots become
@@ -84,8 +84,8 @@ func (resolver RootResolver) resolvePath(root string) (string, error) {
 	return filepath.Abs(filepath.Join(base, root))
 }
 
-func missingRootWarning(root string) *searchv1.Warning {
-	return &searchv1.Warning{
+func missingRootWarning(root string) *searchv1.SearchResponse_Warning {
+	return &searchv1.SearchResponse_Warning{
 		Message: fmt.Sprintf("ripgrep root does not exist: %s", root),
 		Code:    proto.String(WarningRootMissing),
 	}

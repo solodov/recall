@@ -4,7 +4,7 @@ title: Structured search results with provider-suggested field formatting
 status: implementing
 created: 2026-05-01
 updated: 2026-05-01
-currentPhase: 3
+currentPhase: 4
 externalRef: 
 origin: recall-jira provider design discussion
 ---
@@ -41,7 +41,7 @@ The important boundaries:
 
 - [x] 1. Establish the structured result proto as the public contract
 - [x] 2. Localize structured-result handling in core normalization
-- [ ] 3. Render from fields and declarative format hints
+- [x] 3. Render from fields and declarative format hints
 - [ ] 4. Migrate every in-repo provider and provider-facing binary
 - [ ] 5. Define the external provider boundary in docs only
 - [ ] 6. Refresh docs, SDK examples, and debugging snippets

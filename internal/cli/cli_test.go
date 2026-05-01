@@ -33,17 +33,13 @@ func TestRunLoadsConfigSearchesAndRendersResults(t *testing.T) {
 			}
 			receivedQuery = query
 			receivedOptions = options
+			result := testSearchResult("example:1", "note:content", "Example result", "matched text")
 			return &orchestrator.Result{Responses: []orchestrator.ProviderResponse{{
 				ProviderID: "example",
-				Hits: []normalize.Hit{{
+				Results: []normalize.Result{{
 					ProviderID:   "example",
 					ProviderRank: 1,
-					Hit: &searchv1.SearchHit{
-						Id:       "example:1",
-						Selector: "note:content",
-						Title:    "Example result",
-						Snippet:  stringPtr("matched text"),
-					},
+					Result:       result,
 				}},
 			}}}, nil
 		},
@@ -64,7 +60,7 @@ func TestRunLoadsConfigSearchesAndRendersResults(t *testing.T) {
 		t.Fatalf("limit = %d, want 7", receivedOptions.Limit)
 	}
 	output := stripTerminalEscapes(stdout.String())
-	for _, want := range []string{"[example:note:content] Results", "  Example result", "    matched text"} {
+	for _, want := range []string{"[example:note:content] Results", "  Example result", "    snippet: matched text"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("stdout %q does not contain %q", output, want)
 		}
@@ -93,16 +89,13 @@ providers {
 		NewRuntime: newTestRuntime,
 		Search: func(_ runtimepkg.Context, cfg *configv1.RecallConfig, _ string, _ orchestrator.Options) (*orchestrator.Result, error) {
 			providerCount = len(cfg.GetProviders())
+			result := testSearchResult("configured:1", "note:content", "Configured result", "")
 			return &orchestrator.Result{Responses: []orchestrator.ProviderResponse{{
 				ProviderID: "configured",
-				Hits: []normalize.Hit{{
+				Results: []normalize.Result{{
 					ProviderID:   "configured",
 					ProviderRank: 1,
-					Hit: &searchv1.SearchHit{
-						Id:       "configured:1",
-						Selector: "note:content",
-						Title:    "Configured result",
-					},
+					Result:       result,
 				}},
 			}}}, nil
 		},
@@ -370,8 +363,23 @@ func grpcConfigTransport(endpoint string) *configv1.Transport {
 	return &configv1.Transport{Transport: &configv1.Transport_Grpc{Grpc: &configv1.GrpcTransport{Endpoint: endpoint}}}
 }
 
-func stringPtr(value string) *string {
-	return &value
+func testSearchResult(id string, selector string, title string, snippet string) *searchv1.SearchResponse_Result {
+	fields := []*searchv1.SearchResponse_Result_Field{{
+		Key:   "title",
+		Value: &searchv1.SearchResponse_Result_Field_Text{Text: title},
+	}}
+	if snippet != "" {
+		fields = append(fields, &searchv1.SearchResponse_Result_Field{
+			Key:   "snippet",
+			Value: &searchv1.SearchResponse_Result_Field_Text{Text: snippet},
+		})
+	}
+	return &searchv1.SearchResponse_Result{
+		Id:       id,
+		Selector: selector,
+		Fields:   fields,
+		Format:   &searchv1.SearchResponse_Result_Format{TitleFields: []string{"title"}},
+	}
 }
 
 func stripTerminalEscapes(text string) string {

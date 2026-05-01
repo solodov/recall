@@ -17,55 +17,60 @@ const (
 	SelectorFileName = "file:name"
 )
 
-// HitOptions controls how ripgrep match paths are presented in recall hits.
-type HitOptions struct {
+// ResultOptions controls how ripgrep match paths are represented in structured
+// recall results while open targets keep absolute local paths.
+type ResultOptions struct {
 	Roots []string
 }
 
 // MatchesToSearchResponse converts ripgrep content matches plus provider warnings into
-// a recall SearchResponse. Each matching line becomes one hit so repeated terms
-// on the same line do not crowd out distinct search results.
-func MatchesToSearchResponse(matches []Match, warnings []*searchv1.Warning, options HitOptions) *searchv1.SearchResponse {
+// a recall SearchResponse. Each matching line becomes one result so repeated
+// terms on the same line do not crowd out distinct search results.
+func MatchesToSearchResponse(matches []Match, warnings []*searchv1.SearchResponse_Warning, options ResultOptions) *searchv1.SearchResponse {
 	return SearchResponseFromRunResult(RunResult{Matches: matches}, warnings, options)
 }
 
-// SearchResponseFromRunResult maps one runner result into recall hits and warnings.
-func SearchResponseFromRunResult(result RunResult, warnings []*searchv1.Warning, options HitOptions) *searchv1.SearchResponse {
-	hits := PathHitsFromMatches(result.PathMatches, options)
-	hits = append(hits, HitsFromMatches(result.Matches, options)...)
+// SearchResponseFromRunResult maps one runner result into recall results and warnings.
+func SearchResponseFromRunResult(result RunResult, warnings []*searchv1.SearchResponse_Warning, options ResultOptions) *searchv1.SearchResponse {
+	results := PathResultsFromMatches(result.PathMatches, options)
+	results = append(results, ResultsFromMatches(result.Matches, options)...)
 	return &searchv1.SearchResponse{
-		Hits:     hits,
+		Results:  results,
 		Warnings: cloneWarnings(warnings),
 	}
 }
 
-// HitsFromMatches converts parsed ripgrep match events into recall-friendly
-// hits grouped by source file for the default grouped renderer.
-func HitsFromMatches(matches []Match, options HitOptions) []*searchv1.SearchHit {
-	hits := make([]*searchv1.SearchHit, 0, len(matches))
+// ResultsFromMatches converts parsed ripgrep match events into structured
+// results grouped by source file for the default grouped renderer.
+func ResultsFromMatches(matches []Match, options ResultOptions) []*searchv1.SearchResponse_Result {
+	results := make([]*searchv1.SearchResponse_Result, 0, len(matches))
 	for _, match := range matches {
-		hits = append(hits, hitFromMatch(match, options))
+		results = append(results, resultFromMatch(match, options))
 	}
-	return hits
+	return results
 }
 
-// PathHitsFromMatches converts path matches into openable file hits grouped by directory.
-func PathHitsFromMatches(matches []PathMatch, options HitOptions) []*searchv1.SearchHit {
-	hits := make([]*searchv1.SearchHit, 0, len(matches))
+// PathResultsFromMatches converts path matches into openable file results grouped by directory.
+func PathResultsFromMatches(matches []PathMatch, options ResultOptions) []*searchv1.SearchResponse_Result {
+	results := make([]*searchv1.SearchResponse_Result, 0, len(matches))
 	for _, match := range matches {
-		hits = append(hits, pathHitFromMatch(match, options))
+		results = append(results, pathResultFromMatch(match, options))
 	}
-	return hits
+	return results
 }
 
-func pathHitFromMatch(match PathMatch, options HitOptions) *searchv1.SearchHit {
+func pathResultFromMatch(match PathMatch, options ResultOptions) *searchv1.SearchResponse_Result {
 	absolutePath := absoluteMatchPath(match.Path, options.Roots)
 	displayPath := displayMatchPath(absolutePath, options.Roots)
 	displayDir := displayMatchPath(filepath.Dir(absolutePath), options.Roots)
-	return &searchv1.SearchHit{
+	return &searchv1.SearchResponse_Result{
 		Id:       fmt.Sprintf("file_name:%s", absolutePath),
 		Selector: SelectorFileName,
-		Title:    filepath.Base(displayPath),
+		Fields: []*searchv1.SearchResponse_Result_Field{
+			textField("name", filepath.Base(displayPath)),
+			textField("path", displayPath),
+			textField("directory", displayDir),
+		},
 		Targets: []*searchv1.OpenTarget{
 			fileTarget(absolutePath, 0, 0),
 		},
@@ -76,10 +81,11 @@ func pathHitFromMatch(match PathMatch, options HitOptions) *searchv1.SearchHit {
 				fileTarget(filepath.Dir(absolutePath), 0, 0),
 			},
 		},
+		Format: resultFormat([]string{"name"}, []string{"name"}),
 	}
 }
 
-func hitFromMatch(match Match, options HitOptions) *searchv1.SearchHit {
+func resultFromMatch(match Match, options ResultOptions) *searchv1.SearchResponse_Result {
 	absolutePath := absoluteMatchPath(match.Path, options.Roots)
 	displayPath := displayMatchPath(absolutePath, options.Roots)
 	column := firstSubmatchColumn(match)
@@ -88,11 +94,15 @@ func hitFromMatch(match Match, options HitOptions) *searchv1.SearchHit {
 		lineNumber = 1
 	}
 
-	return &searchv1.SearchHit{
+	return &searchv1.SearchResponse_Result{
 		Id:       fmt.Sprintf("file_content:%s:%d:%d", absolutePath, lineNumber, column),
 		Selector: SelectorFileContent,
-		Title:    fmt.Sprintf("%s:%d:%d", displayPath, lineNumber, column),
-		Snippet:  proto.String(match.Line),
+		Fields: []*searchv1.SearchResponse_Result_Field{
+			textField("path", displayPath),
+			integerField("line", int64(lineNumber)),
+			integerField("column", int64(column)),
+			textField("snippet", match.Line),
+		},
 		Targets: []*searchv1.OpenTarget{
 			fileTarget(absolutePath, lineNumber, column),
 		},
@@ -103,6 +113,7 @@ func hitFromMatch(match Match, options HitOptions) *searchv1.SearchHit {
 				fileTarget(absolutePath, 0, 0),
 			},
 		},
+		Format: resultFormat([]string{"line", "snippet"}, []string{"line", "snippet"}),
 	}
 }
 
@@ -164,6 +175,24 @@ func relativePath(root string, path string) (string, bool) {
 	return filepath.ToSlash(relative), true
 }
 
+func textField(key string, value string) *searchv1.SearchResponse_Result_Field {
+	return &searchv1.SearchResponse_Result_Field{
+		Key:   key,
+		Value: &searchv1.SearchResponse_Result_Field_Text{Text: value},
+	}
+}
+
+func integerField(key string, value int64) *searchv1.SearchResponse_Result_Field {
+	return &searchv1.SearchResponse_Result_Field{
+		Key:   key,
+		Value: &searchv1.SearchResponse_Result_Field_Integer{Integer: value},
+	}
+}
+
+func resultFormat(titleFields []string, detailFields []string) *searchv1.SearchResponse_Result_Format {
+	return &searchv1.SearchResponse_Result_Format{TitleFields: titleFields, DetailFields: detailFields}
+}
+
 func fileTarget(path string, line uint64, column uint64) *searchv1.OpenTarget {
 	target := &searchv1.FileTarget{Path: path}
 	if line > 0 && line <= maxUint32 {
@@ -177,13 +206,13 @@ func fileTarget(path string, line uint64, column uint64) *searchv1.OpenTarget {
 
 const maxUint32 = uint64(^uint32(0))
 
-func cloneWarnings(warnings []*searchv1.Warning) []*searchv1.Warning {
-	cloned := make([]*searchv1.Warning, 0, len(warnings))
+func cloneWarnings(warnings []*searchv1.SearchResponse_Warning) []*searchv1.SearchResponse_Warning {
+	cloned := make([]*searchv1.SearchResponse_Warning, 0, len(warnings))
 	for _, warning := range warnings {
 		if warning == nil {
 			continue
 		}
-		cloned = append(cloned, proto.Clone(warning).(*searchv1.Warning))
+		cloned = append(cloned, proto.Clone(warning).(*searchv1.SearchResponse_Warning))
 	}
 	return cloned
 }

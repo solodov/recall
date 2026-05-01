@@ -45,7 +45,7 @@ func (provider *Provider) ListCapabilities(context.Context, *searchv1.ListCapabi
 	}}, nil
 }
 
-// Search returns best-first fixture hits matching all query terms.
+// Search returns best-first fixture results matching all query terms.
 func (provider *Provider) Search(ctx context.Context, request *searchv1.SearchRequest) (*searchv1.SearchResponse, error) {
 	if request == nil {
 		return nil, fmt.Errorf("search request is nil")
@@ -58,7 +58,7 @@ func (provider *Provider) Search(ctx context.Context, request *searchv1.SearchRe
 	selectorHints := recallprovider.RequestedSelectors(request)
 
 	terms := strings.Fields(strings.ToLower(query))
-	hits := make([]*searchv1.SearchHit, 0, len(provider.documents))
+	results := make([]*searchv1.SearchResponse_Result, 0, len(provider.documents))
 	for _, document := range provider.documents {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -66,15 +66,15 @@ func (provider *Provider) Search(ctx context.Context, request *searchv1.SearchRe
 		if !document.matches(terms) || !matchesSelectorHint(document.selector, selectorHints) {
 			continue
 		}
-		hits = append(hits, document.hit())
-		if limit > 0 && len(hits) >= limit {
+		results = append(results, document.result())
+		if limit > 0 && len(results) >= limit {
 			break
 		}
 	}
 
 	return &searchv1.SearchResponse{
-		Hits: hits,
-		Warnings: []*searchv1.Warning{{
+		Results: results,
+		Warnings: []*searchv1.SearchResponse_Warning{{
 			Message: "example provider uses a built-in deterministic fixture",
 			Code:    proto.String("example_fixture"),
 		}},
@@ -87,14 +87,13 @@ func ServeDefault(ctx context.Context) error {
 }
 
 type fixtureDocument struct {
-	id         string
-	selector   string
-	title      string
-	snippet    string
-	score      float64
-	targets    []*searchv1.OpenTarget
-	group      *searchv1.SearchGroup
-	occurredAt time.Time
+	id       string
+	selector string
+	fields   []*searchv1.SearchResponse_Result_Field
+	format   *searchv1.SearchResponse_Result_Format
+	score    float64
+	targets  []*searchv1.OpenTarget
+	group    *searchv1.SearchGroup
 }
 
 func matchesSelectorHint(selector string, hints map[string]bool) bool {
@@ -110,13 +109,7 @@ func matchesSelectorHint(selector string, hints map[string]bool) bool {
 }
 
 func (document fixtureDocument) matches(terms []string) bool {
-	text := strings.ToLower(strings.Join([]string{
-		document.id,
-		document.selector,
-		document.title,
-		document.snippet,
-		document.group.GetTitle(),
-	}, " "))
+	text := strings.ToLower(strings.Join(document.searchText(), " "))
 	for _, term := range terms {
 		if !strings.Contains(text, term) {
 			return false
@@ -125,27 +118,44 @@ func (document fixtureDocument) matches(terms []string) bool {
 	return true
 }
 
-func (document fixtureDocument) hit() *searchv1.SearchHit {
-	return &searchv1.SearchHit{
-		Id:         document.id,
-		Selector:   document.selector,
-		Title:      document.title,
-		Snippet:    proto.String(document.snippet),
-		Score:      proto.Float64(document.score),
-		Targets:    cloneOpenTargets(document.targets),
-		Group:      cloneGroup(document.group),
-		OccurredAt: timestamppb.New(document.occurredAt),
+func (document fixtureDocument) searchText() []string {
+	values := []string{document.id, document.selector}
+	for _, field := range document.fields {
+		if field == nil {
+			continue
+		}
+		values = append(values, field.GetKey(), field.GetText())
+	}
+	if document.group != nil {
+		values = append(values, document.group.GetTitle())
+	}
+	return values
+}
+
+func (document fixtureDocument) result() *searchv1.SearchResponse_Result {
+	return &searchv1.SearchResponse_Result{
+		Id:       document.id,
+		Selector: document.selector,
+		Fields:   cloneFields(document.fields),
+		Score:    proto.Float64(document.score),
+		Targets:  cloneOpenTargets(document.targets),
+		Group:    cloneGroup(document.group),
+		Format:   cloneFormat(document.format),
 	}
 }
 
 func defaultFixtureDocuments() []fixtureDocument {
 	documents := []fixtureDocument{
 		{
-			id:       "example:rollout-note",
+			id:       "rollout-note",
 			selector: "note:content",
-			title:    "Sample rollout note",
-			snippet:  "Checklist for staged rollouts, fallback commands, and verification steps.",
-			score:    0.98,
+			fields: []*searchv1.SearchResponse_Result_Field{
+				textField("title", "Sample rollout note"),
+				textField("snippet", "Checklist for staged rollouts, fallback commands, and verification steps."),
+				timestampField("updated_at", time.Date(2026, 4, 28, 9, 30, 0, 0, time.UTC)),
+			},
+			format: resultFormat([]string{"title"}, []string{"updated_at", "snippet"}),
+			score:  0.98,
 			targets: []*searchv1.OpenTarget{
 				fileTarget("/tmp/recall-example/rollout-note.md", 0, 0),
 				uriTarget("https://example.invalid/recall/rollout-note"),
@@ -155,14 +165,17 @@ func defaultFixtureDocuments() []fixtureDocument {
 				Title:   "Procedure notes",
 				Targets: []*searchv1.OpenTarget{fileTarget("/tmp/recall-example/procedures", 0, 0)},
 			},
-			occurredAt: time.Date(2026, 4, 28, 9, 30, 0, 0, time.UTC),
 		},
 		{
-			id:       "example:planning-session",
+			id:       "planning-session",
 			selector: "event:content",
-			title:    "Fixture planning session",
-			snippet:  "Synthetic calendar event covering risks, owners, and follow-up notes.",
-			score:    0.91,
+			fields: []*searchv1.SearchResponse_Result_Field{
+				textField("summary", "Fixture planning session"),
+				textField("description", "Synthetic calendar event covering risks, owners, and follow-up notes."),
+				timestampField("start_at", time.Date(2026, 4, 27, 16, 0, 0, 0, time.UTC)),
+			},
+			format: resultFormat([]string{"summary"}, []string{"start_at", "description"}),
+			score:  0.91,
 			targets: []*searchv1.OpenTarget{
 				uriTarget("https://calendar.example.invalid/event/planning-session"),
 				fileTarget("/tmp/recall-example/planning-session.md", 0, 0),
@@ -172,14 +185,17 @@ func defaultFixtureDocuments() []fixtureDocument {
 				Title:   "Schedule",
 				Targets: []*searchv1.OpenTarget{uriTarget("https://calendar.example.invalid")},
 			},
-			occurredAt: time.Date(2026, 4, 27, 16, 0, 0, 0, time.UTC),
 		},
 		{
-			id:       "example:recall-design",
+			id:       "recall-design",
 			selector: "note:content",
-			title:    "Recall provider design",
-			snippet:  "Federated search design using protobuf SearchProvider and stdio RPC.",
-			score:    0.87,
+			fields: []*searchv1.SearchResponse_Result_Field{
+				textField("title", "Recall provider design"),
+				textField("snippet", "Federated search design using protobuf SearchProvider and stdio RPC."),
+				timestampField("updated_at", time.Date(2026, 4, 26, 11, 15, 0, 0, time.UTC)),
+			},
+			format: resultFormat([]string{"title"}, []string{"updated_at", "snippet"}),
+			score:  0.87,
 			targets: []*searchv1.OpenTarget{
 				fileTarget("/tmp/recall-example/recall-provider-design.md", 0, 0),
 			},
@@ -188,13 +204,30 @@ func defaultFixtureDocuments() []fixtureDocument {
 				Title:   "Design notes",
 				Targets: []*searchv1.OpenTarget{fileTarget("/tmp/recall-example/design", 0, 0)},
 			},
-			occurredAt: time.Date(2026, 4, 26, 11, 15, 0, 0, time.UTC),
 		},
 	}
 	sort.SliceStable(documents, func(left, right int) bool {
 		return documents[left].score > documents[right].score
 	})
 	return documents
+}
+
+func textField(key string, value string) *searchv1.SearchResponse_Result_Field {
+	return &searchv1.SearchResponse_Result_Field{
+		Key:   key,
+		Value: &searchv1.SearchResponse_Result_Field_Text{Text: value},
+	}
+}
+
+func timestampField(key string, value time.Time) *searchv1.SearchResponse_Result_Field {
+	return &searchv1.SearchResponse_Result_Field{
+		Key:   key,
+		Value: &searchv1.SearchResponse_Result_Field_Timestamp{Timestamp: timestamppb.New(value)},
+	}
+}
+
+func resultFormat(titleFields []string, detailFields []string) *searchv1.SearchResponse_Result_Format {
+	return &searchv1.SearchResponse_Result_Format{TitleFields: titleFields, DetailFields: detailFields}
 }
 
 func uriTarget(uri string) *searchv1.OpenTarget {
@@ -212,6 +245,14 @@ func fileTarget(path string, line uint32, column uint32) *searchv1.OpenTarget {
 	return &searchv1.OpenTarget{Target: &searchv1.OpenTarget_File{File: target}}
 }
 
+func cloneFields(fields []*searchv1.SearchResponse_Result_Field) []*searchv1.SearchResponse_Result_Field {
+	cloned := make([]*searchv1.SearchResponse_Result_Field, 0, len(fields))
+	for _, field := range fields {
+		cloned = append(cloned, proto.Clone(field).(*searchv1.SearchResponse_Result_Field))
+	}
+	return cloned
+}
+
 func cloneOpenTargets(targets []*searchv1.OpenTarget) []*searchv1.OpenTarget {
 	cloned := make([]*searchv1.OpenTarget, 0, len(targets))
 	for _, target := range targets {
@@ -225,4 +266,11 @@ func cloneGroup(group *searchv1.SearchGroup) *searchv1.SearchGroup {
 		return nil
 	}
 	return proto.Clone(group).(*searchv1.SearchGroup)
+}
+
+func cloneFormat(format *searchv1.SearchResponse_Result_Format) *searchv1.SearchResponse_Result_Format {
+	if format == nil {
+		return nil
+	}
+	return proto.Clone(format).(*searchv1.SearchResponse_Result_Format)
 }

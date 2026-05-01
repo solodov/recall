@@ -64,8 +64,8 @@ func TestProviderSearchPassesExistingRootsQueryAndLimitToRunner(t *testing.T) {
 	if runner.options.Limit != 2 {
 		t.Fatalf("limit = %d, want 2", runner.options.Limit)
 	}
-	if len(response.GetHits()) != 1 || response.GetHits()[0].GetTitle() != "main.go:8:1" {
-		t.Fatalf("hits = %#v, want mapped code hit", response.GetHits())
+	if len(response.GetResults()) != 1 || resultTextField(t, response.GetResults()[0], "path") != "main.go" || resultIntegerField(t, response.GetResults()[0], "line") != 8 {
+		t.Fatalf("results = %#v, want mapped code result", response.GetResults())
 	}
 }
 
@@ -99,8 +99,8 @@ func TestProviderSearchAllMissingRootsReturnsWarningsWithoutRunner(t *testing.T)
 	if err != nil {
 		t.Fatalf("Search returned error: %v", err)
 	}
-	if len(response.GetHits()) != 0 {
-		t.Fatalf("hits = %#v, want none", response.GetHits())
+	if len(response.GetResults()) != 0 {
+		t.Fatalf("results = %#v, want none", response.GetResults())
 	}
 	if len(response.GetWarnings()) != 1 || response.GetWarnings()[0].GetCode() != WarningRootMissing {
 		t.Fatalf("warnings = %#v, want missing-root warning", response.GetWarnings())
@@ -122,8 +122,8 @@ func TestProviderSearchWithoutLimitReturnsAllRunnerMatches(t *testing.T) {
 	if runner.options.Limit != 0 {
 		t.Fatalf("limit = %d, want 0 for absent request limit", runner.options.Limit)
 	}
-	if len(response.GetHits()) != 2 {
-		t.Fatalf("hit count = %d, want all runner matches", len(response.GetHits()))
+	if len(response.GetResults()) != 2 {
+		t.Fatalf("result count = %d, want all runner matches", len(response.GetResults()))
 	}
 }
 
@@ -140,12 +140,12 @@ func TestProviderSearchUsesFileNameSelectorHint(t *testing.T) {
 	if !reflect.DeepEqual(runner.options.Selectors, []SearchSelector{SearchSelectorFileName}) {
 		t.Fatalf("selectors = %#v, want file name", runner.options.Selectors)
 	}
-	if len(response.GetHits()) != 1 || response.GetHits()[0].GetSelector() != SelectorFileName || response.GetHits()[0].GetTitle() != "runner.go" {
-		t.Fatalf("hits = %#v, want mapped path match", response.GetHits())
+	if len(response.GetResults()) != 1 || response.GetResults()[0].GetSelector() != SelectorFileName || resultTextField(t, response.GetResults()[0], "name") != "runner.go" {
+		t.Fatalf("results = %#v, want mapped path match", response.GetResults())
 	}
 }
 
-func TestProviderSearchReturnsNoHitsForUnsupportedSelectorHints(t *testing.T) {
+func TestProviderSearchReturnsNoResultsForUnsupportedSelectorHints(t *testing.T) {
 	root := t.TempDir()
 	runner := &recordingRunner{}
 	provider := New(Options{Roots: []string{root}, Runner: runner})
@@ -157,8 +157,8 @@ func TestProviderSearchReturnsNoHitsForUnsupportedSelectorHints(t *testing.T) {
 	if runner.called {
 		t.Fatal("runner was called despite unsupported selector hints")
 	}
-	if len(response.GetHits()) != 0 {
-		t.Fatalf("hits = %#v, want none", response.GetHits())
+	if len(response.GetResults()) != 0 {
+		t.Fatalf("results = %#v, want none", response.GetResults())
 	}
 }
 
@@ -182,7 +182,7 @@ func TestProviderSearchPassesPathFilters(t *testing.T) {
 
 func TestProviderSearchPreservesRunnerWarnings(t *testing.T) {
 	root := t.TempDir()
-	runner := &recordingRunner{result: RunResult{Warnings: []*searchv1.Warning{{
+	runner := &recordingRunner{result: RunResult{Warnings: []*searchv1.SearchResponse_Warning{{
 		Message: "rg: /workspace/codebase/.cache: No such file or directory (os error 2)",
 		Code:    proto.String(WarningPathMissing),
 	}}}}
@@ -223,8 +223,8 @@ func TestProviderServesThroughSDKWithTextproto(t *testing.T) {
 	if err := prototext.Unmarshal(stdout.Bytes(), response); err != nil {
 		t.Fatalf("response was not textproto: %v", err)
 	}
-	if len(response.GetHits()) != 1 || response.GetHits()[0].GetSelector() != SelectorFileContent {
-		t.Fatalf("response hits = %#v, want file content match", response.GetHits())
+	if len(response.GetResults()) != 1 || response.GetResults()[0].GetSelector() != SelectorFileContent {
+		t.Fatalf("response results = %#v, want file content match", response.GetResults())
 	}
 }
 

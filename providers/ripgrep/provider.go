@@ -53,7 +53,7 @@ func (provider *Provider) ListCapabilities(context.Context, *searchv1.ListCapabi
 }
 
 // Search parses the provider-owned query, skips missing configured roots, runs
-// ripgrep against existing roots, and maps matches into recall hits.
+// ripgrep against existing roots, and maps matches into structured recall results.
 func (provider *Provider) Search(ctx context.Context, request *searchv1.SearchRequest) (*searchv1.SearchResponse, error) {
 	if request == nil {
 		return nil, fmt.Errorf("search request is nil")
@@ -90,9 +90,9 @@ func (provider *Provider) Search(ctx context.Context, request *searchv1.SearchRe
 	if err != nil {
 		return nil, err
 	}
-	warnings := append([]*searchv1.Warning{}, resolution.Warnings...)
+	warnings := append([]*searchv1.SearchResponse_Warning{}, resolution.Warnings...)
 	warnings = append(warnings, result.Warnings...)
-	return SearchResponseFromRunResult(result, warnings, HitOptions{Roots: resolution.Roots}), nil
+	return SearchResponseFromRunResult(result, warnings, ResultOptions{Roots: resolution.Roots}), nil
 }
 
 func (provider *Provider) resolveRoots() (RootResolution, error) {

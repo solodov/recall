@@ -8,11 +8,10 @@ import (
 
 	searchv1 "github.com/solodov/recall/proto/recall/search/v1"
 
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// Item is the subset of GitHub REST search JSON fields needed for recall hits.
+// Item is the subset of GitHub REST search JSON fields needed for recall results.
 type Item struct {
 	Name            string       `json:"name"`
 	Path            string       `json:"path"`
@@ -62,52 +61,56 @@ type TextMatch struct {
 
 type PullRequest struct{}
 
-// HitsFromItems maps GitHub search items into grouped recall URI hits.
-func HitsFromItems(selector Selector, items []Item) []*searchv1.SearchHit {
-	hits := make([]*searchv1.SearchHit, 0, len(items))
+// ResultsFromItems maps GitHub search items into grouped structured URI results.
+func ResultsFromItems(selector Selector, items []Item) []*searchv1.SearchResponse_Result {
+	results := make([]*searchv1.SearchResponse_Result, 0, len(items))
 	for _, item := range items {
-		if hit := hitFromItem(selector, item); hit != nil {
-			hits = append(hits, hit)
+		if result := resultFromItem(selector, item); result != nil {
+			results = append(results, result)
 		}
 	}
-	return hits
+	return results
 }
 
-func hitFromItem(selector Selector, item Item) *searchv1.SearchHit {
+func resultFromItem(selector Selector, item Item) *searchv1.SearchResponse_Result {
 	switch selector {
 	case SelectorCode:
-		return codeHit(item)
+		return codeResult(item)
 	case SelectorCommit:
-		return commitHit(item)
+		return commitResult(item)
 	case SelectorIssue:
-		return issueLikeHit(SelectorIssue, item)
+		return issueLikeResult(SelectorIssue, item)
 	case SelectorPR:
-		return issueLikeHit(SelectorPR, item)
+		return issueLikeResult(SelectorPR, item)
 	case SelectorRepo:
-		return repoHit(item)
+		return repoResult(item)
 	default:
 		return nil
 	}
 }
 
-func codeHit(item Item) *searchv1.SearchHit {
+func codeResult(item Item) *searchv1.SearchResponse_Result {
 	repo := repositoryName(item)
 	path := firstNonEmpty(item.Path, item.Name)
 	uri := itemURL(item)
 	if repo == "" || path == "" || uri == "" {
 		return nil
 	}
-	return &searchv1.SearchHit{
+	return &searchv1.SearchResponse_Result{
 		Id:       stableID(SelectorCode, repo, path, item.SHA),
 		Selector: string(SelectorCode),
-		Title:    path,
-		Snippet:  optionalString(firstTextFragment(item.TextMatches)),
-		Targets:  []*searchv1.OpenTarget{uriTarget(uri)},
-		Group:    repoGroup(repo),
+		Fields: fields(
+			textField("path", path),
+			textField("repository", repo),
+			textField("snippet", firstTextFragment(item.TextMatches)),
+		),
+		Targets: []*searchv1.OpenTarget{uriTarget(uri)},
+		Group:   repoGroup(repo),
+		Format:  resultFormat([]string{"path"}, []string{"snippet"}),
 	}
 }
 
-func commitHit(item Item) *searchv1.SearchHit {
+func commitResult(item Item) *searchv1.SearchResponse_Result {
 	repo := repositoryName(item)
 	sha := shortSHA(item.SHA)
 	message := firstLine(item.Commit.Message)
@@ -118,48 +121,62 @@ func commitHit(item Item) *searchv1.SearchHit {
 	if message == "" {
 		message = sha
 	}
-	return &searchv1.SearchHit{
-		Id:         stableID(SelectorCommit, repo, item.SHA),
-		Selector:   string(SelectorCommit),
-		Title:      strings.TrimSpace(sha + " " + message),
-		Snippet:    optionalString(item.Commit.Author.Name),
-		Targets:    []*searchv1.OpenTarget{uriTarget(uri)},
-		Group:      repoGroup(repo),
-		OccurredAt: parseTimestamp(item.Commit.Author.Date),
+	return &searchv1.SearchResponse_Result{
+		Id:       stableID(SelectorCommit, repo, item.SHA),
+		Selector: string(SelectorCommit),
+		Fields: fields(
+			textField("sha", sha),
+			textField("message", message),
+			textField("author", item.Commit.Author.Name),
+			timestampField("authored_at", parseTime(item.Commit.Author.Date)),
+		),
+		Targets: []*searchv1.OpenTarget{uriTarget(uri)},
+		Group:   repoGroup(repo),
+		Format:  resultFormat([]string{"sha", "message"}, []string{"author", "authored_at"}),
 	}
 }
 
-func issueLikeHit(selector Selector, item Item) *searchv1.SearchHit {
+func issueLikeResult(selector Selector, item Item) *searchv1.SearchResponse_Result {
 	repo := repositoryName(item)
 	uri := itemURL(item)
-	if repo == "" || item.Number == 0 || strings.TrimSpace(item.Title) == "" || uri == "" {
+	title := singleLine(item.Title)
+	if repo == "" || item.Number == 0 || title == "" || uri == "" {
 		return nil
 	}
-	return &searchv1.SearchHit{
-		Id:         stableID(selector, repo, fmt.Sprintf("%d", item.Number)),
-		Selector:   string(selector),
-		Title:      fmt.Sprintf("#%d %s", item.Number, singleLine(item.Title)),
-		Snippet:    optionalString(item.State),
-		Targets:    []*searchv1.OpenTarget{uriTarget(uri)},
-		Group:      repoGroup(repo),
-		OccurredAt: parseTimestamp(firstNonEmpty(item.UpdatedAt, item.CreatedAt)),
+	return &searchv1.SearchResponse_Result{
+		Id:       stableID(selector, repo, fmt.Sprintf("%d", item.Number)),
+		Selector: string(selector),
+		Fields: fields(
+			integerField("number", int64(item.Number)),
+			textField("title", title),
+			textField("state", item.State),
+			timestampField("updated_at", parseTime(firstNonEmpty(item.UpdatedAt, item.CreatedAt))),
+		),
+		Targets: []*searchv1.OpenTarget{uriTarget(uri)},
+		Group:   repoGroup(repo),
+		Format:  resultFormat([]string{"number", "title"}, []string{"state", "updated_at"}),
 	}
 }
 
-func repoHit(item Item) *searchv1.SearchHit {
+func repoResult(item Item) *searchv1.SearchResponse_Result {
 	fullName := firstNonEmpty(item.FullName, repositoryName(item))
 	uri := itemURL(item)
 	if fullName == "" || uri == "" {
 		return nil
 	}
-	return &searchv1.SearchHit{
-		Id:         stableID(SelectorRepo, fullName),
-		Selector:   string(SelectorRepo),
-		Title:      fullName,
-		Snippet:    optionalString(repoSnippet(item)),
-		Targets:    []*searchv1.OpenTarget{uriTarget(uri)},
-		Group:      ownerGroup(fullName),
-		OccurredAt: parseTimestamp(item.UpdatedAt),
+	return &searchv1.SearchResponse_Result{
+		Id:       stableID(SelectorRepo, fullName),
+		Selector: string(SelectorRepo),
+		Fields: fields(
+			textField("name", fullName),
+			textField("description", singleLine(item.Description)),
+			textField("language", item.Language),
+			integerField("stars", int64(item.StargazersCount)),
+			timestampField("updated_at", parseTime(item.UpdatedAt)),
+		),
+		Targets: []*searchv1.OpenTarget{uriTarget(uri)},
+		Group:   ownerGroup(fullName),
+		Format:  resultFormat([]string{"name"}, []string{"description", "language", "stars", "updated_at"}),
 	}
 }
 
@@ -221,42 +238,65 @@ func firstTextFragment(matches []TextMatch) string {
 	return ""
 }
 
-func repoSnippet(item Item) string {
-	parts := []string{}
-	if item.Description != "" {
-		parts = append(parts, singleLine(item.Description))
+func fields(candidates ...*searchv1.SearchResponse_Result_Field) []*searchv1.SearchResponse_Result_Field {
+	result := make([]*searchv1.SearchResponse_Result_Field, 0, len(candidates))
+	for _, field := range candidates {
+		if field != nil {
+			result = append(result, field)
+		}
 	}
-	if item.Language != "" {
-		parts = append(parts, item.Language)
+	return result
+}
+
+func textField(key string, value string) *searchv1.SearchResponse_Result_Field {
+	value = singleLine(value)
+	if value == "" {
+		return nil
 	}
-	if item.StargazersCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d stars", item.StargazersCount))
+	return &searchv1.SearchResponse_Result_Field{
+		Key:   key,
+		Value: &searchv1.SearchResponse_Result_Field_Text{Text: value},
 	}
-	return strings.Join(parts, " · ")
+}
+
+func integerField(key string, value int64) *searchv1.SearchResponse_Result_Field {
+	if value == 0 {
+		return nil
+	}
+	return &searchv1.SearchResponse_Result_Field{
+		Key:   key,
+		Value: &searchv1.SearchResponse_Result_Field_Integer{Integer: value},
+	}
+}
+
+func timestampField(key string, value time.Time) *searchv1.SearchResponse_Result_Field {
+	if value.IsZero() {
+		return nil
+	}
+	return &searchv1.SearchResponse_Result_Field{
+		Key:   key,
+		Value: &searchv1.SearchResponse_Result_Field_Timestamp{Timestamp: timestamppb.New(value)},
+	}
+}
+
+func resultFormat(titleFields []string, detailFields []string) *searchv1.SearchResponse_Result_Format {
+	return &searchv1.SearchResponse_Result_Format{TitleFields: titleFields, DetailFields: detailFields}
 }
 
 func uriTarget(uri string) *searchv1.OpenTarget {
 	return &searchv1.OpenTarget{Target: &searchv1.OpenTarget_Uri{Uri: &searchv1.UriTarget{Uri: uri}}}
 }
 
-func optionalString(value string) *string {
-	value = singleLine(value)
-	if value == "" {
-		return nil
-	}
-	return proto.String(value)
-}
-
-func parseTimestamp(value string) *timestamppb.Timestamp {
+func parseTime(value string) time.Time {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return nil
+		return time.Time{}
 	}
 	parsed, err := time.Parse(time.RFC3339, value)
 	if err != nil {
-		return nil
+		return time.Time{}
 	}
-	return timestamppb.New(parsed)
+	return parsed
 }
 
 func stableID(parts ...any) string {

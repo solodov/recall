@@ -47,8 +47,8 @@ func TestServeOneDecodesTextprotoAndMirrorsTextproto(t *testing.T) {
 	if err := prototext.Unmarshal(stdout, response); err != nil {
 		t.Fatalf("unmarshal textproto response: %v", err)
 	}
-	if response.GetHits()[0].GetId() != "example:sample" {
-		t.Fatalf("response = %#v, want sample hit", response)
+	if response.GetResults()[0].GetId() != "example:sample" {
+		t.Fatalf("response = %#v, want sample result", response)
 	}
 }
 
@@ -63,8 +63,8 @@ func TestServeOneDecodesBinaryAndMirrorsBinary(t *testing.T) {
 	if err := proto.Unmarshal(stdout, response); err != nil {
 		t.Fatalf("unmarshal binary response: %v", err)
 	}
-	if response.GetHits()[0].GetId() != "example:fixture" {
-		t.Fatalf("response = %#v, want fixture hit", response)
+	if response.GetResults()[0].GetId() != "example:fixture" {
+		t.Fatalf("response = %#v, want fixture result", response)
 	}
 }
 
@@ -77,8 +77,8 @@ func TestCallUnaryAppendsRPCPathAndUsesBinaryPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CallUnary returned error: %v", err)
 	}
-	if response.GetHits()[0].GetId() != "example:sample" {
-		t.Fatalf("response = %#v, want sample hit", response)
+	if response.GetResults()[0].GetId() != "example:sample" {
+		t.Fatalf("response = %#v, want sample result", response)
 	}
 
 	log := readHelperLog(t, logPath)
@@ -123,11 +123,9 @@ func serveSearch(t *testing.T, requestBytes []byte, wantFormat PayloadFormat, ar
 					if request.GetLimit() == 0 {
 						t.Fatalf("request limit = 0, want decoded request")
 					}
-					return &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{{
-						Id:    "example:" + request.GetQuery(),
-						Selector:  "note",
-						Title: "Result",
-					}}}, nil
+					return &searchv1.SearchResponse{Results: []*searchv1.SearchResponse_Result{
+						structuredResult("example:" + request.GetQuery()),
+					}}, nil
 				},
 			},
 		},
@@ -189,11 +187,9 @@ func serveCallUnaryHelper(t *testing.T) {
 		}
 	}
 
-	responseBytes, err := MarshalPayload(format, &searchv1.SearchResponse{Hits: []*searchv1.SearchHit{{
-		Id:    "example:" + request.GetQuery(),
-		Selector:  "note",
-		Title: "Result",
-	}}})
+	responseBytes, err := MarshalPayload(format, &searchv1.SearchResponse{Results: []*searchv1.SearchResponse_Result{
+		structuredResult("example:" + request.GetQuery()),
+	}})
 	if err != nil {
 		t.Fatalf("marshal response: %v", err)
 	}
@@ -201,6 +197,18 @@ func serveCallUnaryHelper(t *testing.T) {
 		t.Fatalf("write stdout: %v", err)
 	}
 	os.Exit(0)
+}
+
+func structuredResult(id string) *searchv1.SearchResponse_Result {
+	return &searchv1.SearchResponse_Result{
+		Id:       id,
+		Selector: "note:content",
+		Fields: []*searchv1.SearchResponse_Result_Field{{
+			Key:   "title",
+			Value: &searchv1.SearchResponse_Result_Field_Text{Text: "Result"},
+		}},
+		Format: &searchv1.SearchResponse_Result_Format{TitleFields: []string{"title"}},
+	}
 }
 
 func mustPath(t *testing.T, method MethodKey) string {

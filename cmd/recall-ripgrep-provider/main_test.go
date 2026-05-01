@@ -42,12 +42,12 @@ func TestRipgrepProviderBinarySmokeUsesFakeRG(t *testing.T) {
 	if err := prototext.Unmarshal(stdout.Bytes(), response); err != nil {
 		t.Fatalf("decode provider response: %v\n%s", err, stdout.String())
 	}
-	if len(response.GetHits()) != 1 {
-		t.Fatalf("hit count = %d, want 1", len(response.GetHits()))
+	if len(response.GetResults()) != 1 {
+		t.Fatalf("result count = %d, want 1", len(response.GetResults()))
 	}
-	hit := response.GetHits()[0]
-	if hit.GetSelector() != ripgrep.SelectorFileContent || hit.GetTitle() != "main.go:4:1" || hit.GetSnippet() != "foo()" {
-		t.Fatalf("hit = %#v, want mapped file content match", hit)
+	result := response.GetResults()[0]
+	if result.GetSelector() != ripgrep.SelectorFileContent || resultIntegerField(t, result, "line") != 4 || resultTextField(t, result, "snippet") != "foo()" || resultTextField(t, result, "path") != "main.go" {
+		t.Fatalf("result = %#v, want mapped file content result", result)
 	}
 
 	args, err := os.ReadFile(fakeArgsPath)
@@ -92,4 +92,26 @@ printf '%s\n' '{"type":"match","data":{"path":{"text":"main.go"},"lines":{"text"
 	}
 	t.Setenv("RECALL_RIPGREP_PROVIDER_TEST_ARGS", argsPath)
 	return path
+}
+
+func resultTextField(t *testing.T, result *searchv1.SearchResponse_Result, key string) string {
+	t.Helper()
+	for _, field := range result.GetFields() {
+		if field.GetKey() == key {
+			return field.GetText()
+		}
+	}
+	t.Fatalf("missing text field %q in %#v", key, result.GetFields())
+	return ""
+}
+
+func resultIntegerField(t *testing.T, result *searchv1.SearchResponse_Result, key string) int64 {
+	t.Helper()
+	for _, field := range result.GetFields() {
+		if field.GetKey() == key {
+			return field.GetInteger()
+		}
+	}
+	t.Fatalf("missing integer field %q in %#v", key, result.GetFields())
+	return 0
 }

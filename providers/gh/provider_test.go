@@ -41,8 +41,8 @@ func TestProviderSearchDoesNothingWithoutSelectorHints(t *testing.T) {
 	if runner.called {
 		t.Fatal("runner was called without selector hints")
 	}
-	if len(response.GetHits()) != 0 {
-		t.Fatalf("hits = %#v, want none", response.GetHits())
+	if len(response.GetResults()) != 0 {
+		t.Fatalf("results = %#v, want none", response.GetResults())
 	}
 }
 
@@ -62,16 +62,19 @@ func TestProviderSearchRunsSupportedHintedSelectors(t *testing.T) {
 	if !reflect.DeepEqual(runner.calls, []runnerCall{{Selector: SelectorPR, Query: "parser type:pr", Limit: 5}}) {
 		t.Fatalf("runner calls = %#v, want only PR search", runner.calls)
 	}
-	if len(response.GetHits()) != 1 {
-		t.Fatalf("hit count = %d, want 1", len(response.GetHits()))
+	if len(response.GetResults()) != 1 {
+		t.Fatalf("result count = %d, want 1", len(response.GetResults()))
 	}
-	hit := response.GetHits()[0]
-	if hit.GetSelector() != string(SelectorPR) || hit.GetTitle() != "#7 Improve parser" || hit.GetGroup().GetTitle() != "example/project" {
-		t.Fatalf("hit = %#v, want mapped PR", hit)
+	result := response.GetResults()[0]
+	if result.GetSelector() != string(SelectorPR) || integerFieldValue(t, result, "number") != 7 || textFieldValue(t, result, "title") != "Improve parser" || result.GetGroup().GetTitle() != "example/project" {
+		t.Fatalf("result = %#v, want mapped PR", result)
+	}
+	if !reflect.DeepEqual(result.GetFormat().GetTitleFields(), []string{"number", "title"}) || !reflect.DeepEqual(result.GetFormat().GetDetailFields(), []string{"state", "updated_at"}) {
+		t.Fatalf("format = %#v, want number/title plus state/update", result.GetFormat())
 	}
 }
 
-func TestProviderSearchReturnsNoHitsForUnsupportedHints(t *testing.T) {
+func TestProviderSearchReturnsNoResultsForUnsupportedHints(t *testing.T) {
 	runner := &recordingRunner{}
 	provider, err := New(Options{Selectors: []Selector{SelectorIssue}, Runner: runner})
 	if err != nil {
@@ -85,8 +88,8 @@ func TestProviderSearchReturnsNoHitsForUnsupportedHints(t *testing.T) {
 	if runner.called {
 		t.Fatal("runner was called for unconfigured hinted selector")
 	}
-	if len(response.GetHits()) != 0 {
-		t.Fatalf("hits = %#v, want none", response.GetHits())
+	if len(response.GetResults()) != 0 {
+		t.Fatalf("results = %#v, want none", response.GetResults())
 	}
 }
 
@@ -119,4 +122,38 @@ func (runner *recordingRunner) Search(_ context.Context, selector Selector, quer
 	runner.called = true
 	runner.calls = append(runner.calls, runnerCall{Selector: selector, Query: query, Limit: limit})
 	return append([]Item{}, runner.items[selector]...), runner.err
+}
+
+func textFieldValue(t *testing.T, result *searchv1.SearchResponse_Result, key string) string {
+	t.Helper()
+	for _, field := range result.GetFields() {
+		if field.GetKey() == key {
+			return field.GetText()
+		}
+	}
+	t.Fatalf("missing text field %q in %#v", key, result.GetFields())
+	return ""
+}
+
+func integerFieldValue(t *testing.T, result *searchv1.SearchResponse_Result, key string) int64 {
+	t.Helper()
+	for _, field := range result.GetFields() {
+		if field.GetKey() == key {
+			return field.GetInteger()
+		}
+	}
+	t.Fatalf("missing integer field %q in %#v", key, result.GetFields())
+	return 0
+}
+
+func timestampFieldValue(t *testing.T, result *searchv1.SearchResponse_Result, key string) any {
+	t.Helper()
+	for _, field := range result.GetFields() {
+		if field.GetKey() == key {
+			if timestamp := field.GetTimestamp(); timestamp != nil && timestamp.IsValid() {
+				return timestamp
+			}
+		}
+	}
+	return nil
 }
