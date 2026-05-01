@@ -8,9 +8,9 @@ This file tracks plans managed in the markdown-backed layout.
 
 ### [20260501-structured-search-result-format](./20260501-structured-search-result-format.md)
 - title: Structured search results with provider-suggested field formatting
-- status: implementing
-- currentPhase: 7
-- currentPhaseTitle: Validate by contract layer, in-repo providers, then full repo
+- status: done
+- currentPhase: none
+- currentPhaseTitle: none
 - nextPhase: none
 - nextPhaseTitle: none
 - totalPhases: 7
