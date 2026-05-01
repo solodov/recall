@@ -1,7 +1,7 @@
 ---
 id: 20260501-structured-search-result-format
 title: Structured search results with provider-suggested field formatting
-status: active
+status: implementing
 created: 2026-05-01
 updated: 2026-05-01
 currentPhase: 1
@@ -13,115 +13,83 @@ origin: recall-jira provider design discussion
 
 ## Outcome
 
-Replace the current hit-shaped search response with a structured result model that lets providers return ordered, typed fields and a declarative rendering suggestion. This keeps `recall` provider-agnostic while supporting richer sources such as Jira, Slack, GitHub, and file search without source-specific renderers.
+Replace the current hit-shaped search response with a structured result model: providers return ordered, typed fields plus a declarative render format, while `recall` remains provider-agnostic and owns generic rendering, ranking, grouping, timestamp localization, open-target handling, and JSON output.
 
-The core principle is:
+The intended system shape:
 
-- `id` is a stable provider-local machine identity, not necessarily a rendered label.
-- Provider data is returned as typed fields with stable keys.
-- Providers suggest which field keys appear on the title line and which appear as detail rows.
-- `recall` owns generic styling, separators, timestamp localization, grouping, open targets, ranking, and JSON output.
+- Providers return **machine identity** separately from **rendered content**.
+- `id` remains stable provider-local identity and is not necessarily shown.
+- Rendered labels, snippets, timestamps, line numbers, ticket keys, statuses, and summaries are normal typed fields.
+- Providers suggest presentation through `format.title_fields` and `format.detail_fields`.
+- `recall` resolves those field keys generically; it does not add Jira/Slack/GitHub-specific renderer branches.
+- Open targets identify where to open; display positions such as Slack message timestamp, ripgrep line number, or Jira updated time are fields selected by the result format.
 
-This intentionally does not preserve the old `SearchHit.title`, `snippet`, or `occurred_at` shape. All known providers should be updated in the same rollout. If external provider compatibility becomes required before implementation starts, move this contract to `recall.search.v2` instead of changing `recall.search.v1` in place.
+This is a breaking change in `recall.search.v1`. There is no compatibility phase, no old-shape decoding, no transitional adapters, and no responsibility to migrate external providers in this repo. External providers will fail against the new contract until their owners update them.
 
-## Target protobuf shape
+The protobuf contract should be self-documenting enough for provider authors to implement from `proto/recall/search/v1/search.proto` alone. Proto comments are part of the public contract and should define selector semantics, result identity, field key rules, format behavior, timestamp expectations, open-target boundaries, validation constraints, and concrete examples.
+
+The important boundaries:
+
+- **Provider contract**: stable ids, selectors, typed fields, open targets, optional group, optional score, optional render format, and thorough proto comments as the implementer-facing source of truth.
+- **Core normalization/ranking**: validate structured data, preserve JSON, filter by selector, rank by provider-local order and provider weight.
+- **Renderer**: turn fields and format hints into generic human output, including local-time timestamps and compact grouped rows.
+- **Openers**: use targets only for opening, not for display layout decisions.
+- **In-repo providers**: example, ripgrep, and GitHub providers migrate in the same change so this repo remains internally consistent and buildable.
+- **External providers**: out of scope for implementation; their contract is the documented proto.
+
+## Phases
+
+- [ ] 1. Establish the structured result proto as the public contract
+- [ ] 2. Localize structured-result handling in core normalization
+- [ ] 3. Render from fields and declarative format hints
+- [ ] 4. Migrate every in-repo provider and provider-facing binary
+- [ ] 5. Define the external provider boundary in docs only
+- [ ] 6. Refresh docs, SDK examples, and debugging snippets
+- [ ] 7. Validate by contract layer, in-repo providers, then full repo
+
+## Phase Details
+
+### Phase 1: Establish the structured result proto as the public contract
+
+Replace the current hit-shaped response with a structured result model in `proto/recall/search/v1/search.proto`, then regenerate Go bindings through the existing `Justfile` flow.
+
+The proto should be written as the primary public contract, not just a schema. Every service, message, field, and nested type should explain:
+
+- whether the value is provider-owned or recall-owned;
+- whether it is required, optional, or advisory;
+- how recall validates it;
+- how recall renders or preserves it;
+- what provider authors should not encode there;
+- representative examples for common provider families.
+
+Target shape:
 
 ```proto
-syntax = "proto3";
-
-package recall.search.v1;
-
-option go_package = "github.com/solodov/recall/proto/recall/search/v1;searchv1";
-
-import "google/protobuf/timestamp.proto";
-
-service SearchProvider {
-  rpc Search(SearchRequest) returns (SearchResponse);
-  rpc ListCapabilities(ListCapabilitiesRequest) returns (ListCapabilitiesResponse);
-}
-
-message SearchRequest {
-  string query = 1;
-  optional uint32 limit = 2;
-  repeated string selector_hints = 3;
-}
-
 message SearchResponse {
   repeated Result results = 1;
   repeated Warning warnings = 2;
 
   message Result {
-    // Stable provider-local machine identity. It should not include the recall
-    // provider id unless that prefix is native to the source.
     string id = 1;
-
-    // Provider-local selector in object:match form.
     string selector = 2;
-
-    // Ordered structured data returned for this result. Format references these
-    // fields by key when suggesting title-line and detail rendering.
     repeated Field fields = 3;
-
-    // Openable targets for this result, in provider-preferred order.
-    repeated Target targets = 4;
-
-    // Optional provider-preferred grouping identity.
-    Group group = 5;
-
-    // Optional provider-native score for diagnostics. Scores are not comparable
-    // across providers and are not the primary blending signal.
+    repeated OpenTarget targets = 4;
+    SearchGroup group = 5;
     optional double score = 6;
-
-    // Provider-suggested generic rendering layout.
     Format format = 7;
 
     message Field {
-      // Stable machine key, such as "ticket", "summary", "priority", "status",
-      // "updated_at", "assignee", "timestamp", or "snippet".
       string key = 1;
 
-      // Optional display label. Empty means recall derives one from key.
-      string label = 2;
-
-      Value value = 3;
-
-      message Value {
-        oneof kind {
-          string text = 1;
-          int64 integer = 2;
-          google.protobuf.Timestamp timestamp = 3;
-        }
+      oneof value {
+        string text = 2;
+        int64 integer = 3;
+        google.protobuf.Timestamp timestamp = 4;
       }
-    }
-
-    message Target {
-      oneof target {
-        Uri uri = 1;
-        File file = 2;
-      }
-
-      message Uri {
-        string uri = 1;
-      }
-
-      message File {
-        string path = 1;
-        optional uint32 line = 2;
-        optional uint32 column = 3;
-      }
-    }
-
-    message Group {
-      string key = 1;
-      string title = 2;
-      repeated Target targets = 3;
     }
 
     message Format {
-      // Ordered field keys rendered on the first line.
       repeated string title_fields = 1;
-
-      // Ordered field keys rendered below the first line as label/value rows.
       repeated string detail_fields = 2;
     }
   }
@@ -131,182 +99,55 @@ message SearchResponse {
     optional string code = 2;
   }
 }
-
-message ListCapabilitiesRequest {}
-
-message ListCapabilitiesResponse {
-  repeated Surface surfaces = 1;
-
-  message Surface {
-    string selector = 1;
-    string title = 2;
-    string description = 3;
-  }
-}
 ```
 
-## Rendering contract
+Keep `OpenTarget`, `UriTarget`, `FileTarget`, `SearchGroup`, `SearchSurface`, `SearchRequest`, and `ListCapabilities` as top-level protocol concepts unless implementation exposes a clear reason to nest them.
 
-Human rendering should use the result format when present:
+Document the structured result model directly in the proto:
 
-1. Build a field lookup by `Field.key`.
-2. Render `format.title_fields` on the first line using recall-owned separators and terminal links.
-3. Render `format.detail_fields` in order below the title line as `label: value` rows.
-4. Derive a label from `key` when `Field.label` is empty: replace `_` with spaces and keep it lower-case.
-5. Render timestamp values in the operator's local timezone.
-6. Ignore missing format keys rather than failing the whole response; response normalization should report invalid duplicate field keys or invalid timestamps.
-7. If no format is supplied, use a safe fallback: first non-empty field as the title line and remaining fields as detail rows.
+- `Result.id` is stable provider-local machine identity, not necessarily display text.
+- `Result.selector` is a full provider-local `object:match` selector and should match a listed `SearchSurface` when capabilities are available.
+- `Field.key` is stable snake_case machine identity such as `ticket`, `summary`, `timestamp`, `line`, `column`, `snippet`, `status`, or `updated_at`.
+- Field keys are unique within one result.
+- Text fields are provider-normalized text; recall may collapse whitespace for human output.
+- Integer fields are numeric facts such as line, column, count, priority rank, or sequence number.
+- Timestamp fields are UTC instants from providers; recall renders human output in the operator’s local timezone without showing a timezone suffix.
+- `Format.title_fields` and `Format.detail_fields` are presentation hints, not schema declarations.
+- Fields not referenced by `Format` remain preserved in JSON.
 
-Suggested first-line separator rule:
+Remove `UriTarget.timestamp`. URI targets identify what to open. If a source needs timestamp data to open correctly, encode it in the URI/permalink. If a timestamp should be displayed, return it as a normal `timestamp` field and select it through `format.title_fields` or `format.detail_fields`.
 
-- two title fields: `first: second`
-- more than two title fields: `first: second · third · fourth`
-- one title field: `first`
+Document open-target boundaries clearly:
 
-Open links should wrap the rendered first line when a primary target exists. Detail fields are display data only unless future field-level targets are added.
+- `FileTarget.line` and `FileTarget.column` are file open-position metadata.
+- Slack-style message timestamps, Jira updated time, GitHub authored time, and similar display facts belong in fields.
+- Open targets should not carry display-only data.
+- Group targets open the group; result targets open the individual result.
 
-## Examples
-
-### Jira
-
-Jira uses the ticket key as both the stable id and a rendered field. The summary remains a field rather than being duplicated into an old top-level title.
-
-```textproto
-results {
-  id: "FD-101"
-  selector: "ticket:content"
-
-  fields { key: "ticket" value { text: "FD-101" } }
-  fields { key: "summary" value { text: "Fix parser" } }
-  fields { key: "priority" value { text: "High" } }
-  fields { key: "status" value { text: "In Progress" } }
-  fields { key: "updated_at" label: "last updated" value { timestamp: { seconds: 1777651200 } } }
-  fields { key: "assignee" value { text: "Peter Solodov" } }
-  fields { key: "snippet" value { text: "Matched description context..." } }
-
-  targets { uri { uri: "https://fairewholesale.atlassian.net/browse/FD-101" } }
-  group { key: "FD" title: "FD" }
-
-  format {
-    title_fields: "ticket"
-    title_fields: "summary"
-    detail_fields: "priority"
-    detail_fields: "status"
-    detail_fields: "updated_at"
-    detail_fields: "assignee"
-    detail_fields: "snippet"
-  }
-}
-```
-
-Expected human shape:
-
-```text
-FD-101: Fix parser
-  priority: High
-  status: In Progress
-  last updated: 2026-05-01 09:00
-  assignee: Peter Solodov
-  snippet: Matched description context...
-```
-
-### Slack
-
-Slack keeps a stable machine id separate from the rendered timestamp. The timestamp and snippet are just fields selected for the title line.
-
-```textproto
-results {
-  id: "C123/1776377309.929809"
-  selector: "message:content"
-
-  fields { key: "timestamp" value { timestamp: { seconds: 1776377309 nanos: 929809000 } } }
-  fields { key: "snippet" value { text: "Launch plan update" } }
-  fields { key: "author" value { text: "alice" } }
-
-  targets { uri { uri: "https://workspace.slack.com/archives/C123/p1776377309929809?thread_ts=1776377000.123456" } }
-  group { key: "C123" title: "#eng" targets { uri { uri: "https://workspace.slack.com/archives/C123" } } }
-
-  format {
-    title_fields: "timestamp"
-    title_fields: "snippet"
-    detail_fields: "author"
-  }
-}
-```
-
-Expected human shape:
-
-```text
-2026-04-16 12:35: Launch plan update
-  author: alice
-```
-
-### Ripgrep
-
-File search can model line number and matched text as fields. The file target still carries precise open location.
-
-```textproto
-results {
-  id: "/repo/main.go:42:1"
-  selector: "file:content"
-
-  fields { key: "line" value { integer: 42 } }
-  fields { key: "snippet" value { text: "func Search(...)" } }
-
-  targets { file { path: "/repo/main.go" line: 42 column: 1 } }
-  group { key: "/repo/main.go" title: "main.go" targets { file { path: "/repo/main.go" } } }
-
-  format {
-    title_fields: "line"
-    title_fields: "snippet"
-  }
-}
-```
-
-Expected grouped shape can remain compact:
-
-```text
-   42: func Search(...)
-```
-
-## Phases
-
-- [ ] 1. Replace the search proto and regenerate Go bindings
-- [ ] 2. Update core normalization, ranking, and transport clients
-- [ ] 3. Implement generic field/format rendering
-- [ ] 4. Migrate first-party recall providers
-- [ ] 5. Coordinate sibling provider migrations
-- [ ] 6. Refresh docs, examples, and direct-provider debugging snippets
-- [ ] 7. Validate the full provider ecosystem
-
-## Phase Details
-
-### Phase 1: Replace the search proto and regenerate Go bindings
-
-Update `proto/recall/search/v1/search.proto` to the target response shape above and regenerate `search.pb.go` with the existing `Justfile` flow.
-
-This is a source-breaking contract change. Do not keep compatibility shims in the proto. Use the generated nested Go names such as `SearchResponse_Result` and `SearchResponse_Result_Field`; readable proto is more important than short generated identifiers.
-
-Update proto contract tests so they lock:
+Contract tests should lock the stable shape:
 
 - `SearchRequest` still has `query`, optional `limit`, and `selector_hints`.
 - `SearchResponse` contains `results` and nested `Warning`.
 - `SearchResponse.Result` contains `id`, `selector`, `fields`, `targets`, `group`, `score`, and `format`.
 - `SearchResponse.Result.Field.Value` supports `text`, `integer`, and `timestamp`.
+- `UriTarget` does not contain display timestamp fields.
 
-### Phase 2: Update core normalization, ranking, and transport clients
+### Phase 2: Localize structured-result handling in core normalization
 
-Replace `SearchHit` usage across recall core with `SearchResponse_Result`.
+Replace `SearchHit` usage in recall core with the new result model. Do not add compatibility adapters for old `SearchHit.title`, `snippet`, `kind`, or `occurred_at`; old providers are simply no longer compatible with this contract.
 
-Important updates:
+Introduce a small internal abstraction around result fields so normalization, rendering, ranking, and filtering can ask common questions without each reimplementing generated-proto lookups. This keeps the generated nested Go names contained and makes renderer behavior easier to test.
 
-- `internal/searchclient` should read and write the new response message without special conversion.
-- `internal/normalize` should validate result ids, selectors, field keys, field values, targets, groups, warnings, and timestamps.
-- Ranking should continue to use provider-local result order and provider weight; field contents must not influence ranking.
-- Selector filtering should continue to inspect each result's provider-local `selector`.
-- JSON output should preserve structured fields and formats instead of flattening them back into legacy title/snippet fields.
+Core behavior stays stable:
 
-Validation should reject or warn on behavior-affecting malformed data:
+- `internal/searchclient` reads and writes the new protobuf messages directly.
+- `internal/normalize` validates result ids, selectors, fields, targets, groups, warnings, and timestamps.
+- Ranking continues to use provider-local result order and provider weight.
+- Field contents do not affect ranking.
+- Selector filtering continues to inspect each result’s provider-local `selector`.
+- JSON output preserves structured fields and provider format hints.
+
+Validation should reject behavior-affecting malformed data:
 
 - empty `id`
 - empty `selector`
@@ -314,90 +155,404 @@ Validation should reject or warn on behavior-affecting malformed data:
 - field with empty `key`
 - field with no `value` kind
 - invalid timestamp values
+- non-finite score
+- malformed URI target
 - file target with `column` but no `line`
 
-### Phase 3: Implement generic field/format rendering
+### Phase 3: Render from fields and declarative format hints
 
-Refactor `internal/render` around result fields rather than top-level title/snippet/timestamp fields.
+Refactor `internal/render` so human output is derived from result fields and `Result.Format`, not legacy title/snippet/timestamp fields.
 
-Renderer behavior:
+Renderer ownership:
 
-- Grouping still uses `Result.Group`.
-- Primary open target still wraps the first line in an OSC 8 `recall://open` link.
-- `Format.title_fields` controls the first-line content.
-- `Format.detail_fields` controls ordered detail rows.
-- Missing format keys are skipped so partial provider data degrades gracefully.
-- If no format is supplied, render the first field as the title line and remaining fields as details.
-- If a grouped file result has a file target with line number and a `line` field in title fields, keep the compact line-oriented layout.
-- If a grouped Slack-style result has a timestamp title field, render the timestamp as the line prefix through the same generic title-line rule rather than through `Uri.timestamp`.
+- Providers choose stable field keys and suggest field order.
+- `recall` owns separators, styles, labels, timestamp localization, OSC 8 links, grouping, and fallbacks.
+- No source-specific renderer branches should be added for Jira, Slack, GitHub, or similar providers.
 
-Add focused render tests for:
+Format semantics:
+
+- `format.title_fields` controls the first-line content.
+- `format.detail_fields` controls ordered detail rows.
+- Fields not listed in either format list are still preserved in JSON.
+- Unknown format keys are skipped during human rendering.
+- Duplicate keys in format lists are ignored after the first occurrence.
+- If `title_fields` is empty or all referenced fields are missing, fallback uses the first available field as the title.
+- If `detail_fields` is empty, fallback renders remaining fields as details.
+- If `format` is absent, render the first field as the title line and remaining fields as details.
+
+Do not add provider-controlled labels initially. `Field.key` remains the stable machine key, and recall humanizes keys for detail rows, such as `updated_at` → `updated at`.
+
+Timestamp rendering assumes providers supply UTC instants. Human output localizes to the operator’s timezone and omits timezone suffixes. JSON preserves protobuf timestamps.
+
+Renderer tests should cover:
 
 - Jira-style `ticket + summary` title with ordered detail rows.
 - Slack-style `timestamp + snippet` title.
 - Ripgrep-style `line + snippet` grouped output.
 - Fallback rendering when `format` is absent.
 - Missing title/detail keys.
+- Duplicate format keys.
+- JSON preservation of fields not shown in human output.
 
-### Phase 4: Migrate first-party recall providers
+### Phase 4: Migrate every in-repo provider and provider-facing binary
 
-Update in-repo providers to return the new response shape:
+Update all in-repo providers to return the new response shape directly. This is core scope: the repository should not contain first-party providers, examples, or command binaries that still emit the old hit-shaped contract.
 
-- `examples/exampleprovider`: fixture fields and formats for notes/events.
-- `providers/ripgrep`: `line`, `column`, `path`, and `snippet` fields with compact line title format.
-- `providers/gh`: issue/PR/repo/commit/code fields with source-appropriate title formats.
-- provider tests and direct textproto examples.
+This should not mechanically wrap old `title` and `snippet`; each provider should expose fields that match its source semantics.
 
 Provider mapping guidance:
 
 - Do not put the recall provider id into result ids.
-- Put user-visible identifiers into fields only when they should render, even if they duplicate `id` for sources like Jira.
+- Keep `id` stable and provider-local.
+- Put user-visible identifiers into fields when they should render.
 - Put snippets into a `snippet` field.
 - Put source-domain times into named timestamp fields such as `updated_at`, `created_at`, `timestamp`, or `authored_at`.
-- If a target needs time information to open correctly, encode it in the URI itself rather than in a target timestamp field.
+- Use `format.title_fields` and `format.detail_fields` to express preferred generic presentation.
+- Encode open-required time information in the URI/permalink, not in target metadata.
 
-### Phase 5: Coordinate sibling provider migrations
+In-repo coverage must include:
 
-Update known external/sibling providers in the same rollout or immediately after the recall core change lands:
+- `examples/exampleprovider`: fixture fields and formats for notes/events, with SDK tests exercising `Search` and `ListCapabilities`.
+- `cmd/recall-example-provider`: direct textproto examples and integration coverage pass with structured responses.
+- `providers/ripgrep`: `path`, `line`, `column`, and `snippet` fields with compact grouped line output.
+- `cmd/recall-ripgrep-provider`: binary smoke tests and direct provider snippets use structured fields.
+- `providers/gh`: issue, PR, repo, commit, and code fields with source-appropriate title and detail formats.
+- `cmd/recall-gh-provider`: selector configuration remains intact while emitted results use fields.
+- `provider` SDK package tests: public API examples demonstrate `Result`, `Field`, and `Format`.
+- repo examples and docs that pipe `SearchRequest` directly into providers.
 
-- `../recall-jira`: emit `ticket`, `summary`, `priority`, `status`, `updated_at`, `assignee`, and `snippet` fields. Use `id` equal to the Jira ticket key and title fields `ticket`, `summary`.
-- `../recall-slack`: emit stable id such as `channel_id/message_ts`, title fields `timestamp`, `snippet`, and detail fields such as `author` when available. Remove dependence on `UriTarget.timestamp` for row rendering.
-- `recall-notion-provider`: map page title/snippet/updated fields and choose a title format.
-- Shiny's recall provider: map workflow title/state/todo/due/scheduled/tags into fields and format them explicitly.
-- Any org-roam provider in local config should be migrated or temporarily disabled during the rollout.
+Provider tests should assert meaningful field keys and formats, not just that old title/snippet strings were preserved somewhere. First-party providers should remain living examples for external implementers.
 
-Because this is a breaking contract, do not leave mixed old/new providers enabled in the operator config during validation.
+### Phase 5: Define the external provider boundary in docs only
 
-### Phase 6: Refresh docs, examples, and direct-provider debugging snippets
+External and sibling providers are not implementation scope for this repo. There is no compatibility mode to keep them running, and no coordinated migration work here. Their owners are responsible for updating to the documented proto contract.
 
-Update documentation to describe the new field/format result model:
+The recall repo should only provide:
+
+- a thoroughly documented protobuf contract;
+- public SDK examples that compile against the new shape;
+- first-party in-repo providers as reference implementations;
+- clear docs that old hit-shaped providers are incompatible.
+
+Do not add temporary adapters, legacy request/response translation, old field names, or mixed old/new validation paths to support external providers.
+
+Validation should avoid relying on the operator’s personal config if it includes external providers that have not migrated. Use in-repo configs and first-party providers for acceptance.
+
+### Phase 6: Refresh docs, SDK examples, and debugging snippets
+
+Update docs so provider authors understand the new result model and the boundary between identity, fields, format, and targets.
+
+Docs should cover:
 
 - `README.md` provider SDK example.
 - `docs/recall-compatible-search.md`.
 - provider-specific docs such as `docs/recall-gh-provider.md` and `docs/recall-ripgrep-provider.md`.
-- example config and textproto snippets.
+- example config and direct textproto snippets.
 
-Docs should explain the distinction between `id` and rendered fields:
+Docs should defer to the proto for detailed contract rules instead of duplicating every rule, but they should clearly point implementers to `proto/recall/search/v1/search.proto` as the authoritative reference.
+
+Docs should make these distinctions explicit:
 
 - `id` is stable provider-local machine identity.
-- rendered identifiers, timestamps, line numbers, and snippets are normal fields selected by `format.title_fields`.
+- rendered identifiers, timestamps, line numbers, snippets, and statuses are fields.
+- `format.title_fields` and `format.detail_fields` select fields for human output.
+- fields not rendered in human output remain available in JSON.
+- open targets are for opening only and should not carry display-only data.
+- provider examples should show complete `Result` payloads with fields and format hints.
+- external providers must update themselves to the new breaking contract.
 
-### Phase 7: Validate the full provider ecosystem
+### Phase 7: Validate by contract layer, in-repo providers, then full repo
 
-Run recall validation after each migration layer:
+Validation should include build, lint, focused tests, and full tests. Build is required because generated proto and API drift can fail compilation before narrower tests expose the issue.
+
+Use the repo’s Justfile workflow:
 
 ```bash
-just test ./proto/recall/search/v1 ./internal/normalize ./internal/render ./internal/searchclient
-just test ./providers/... ./examples/...
+just build
+just lint proto/recall/search/v1 internal/normalize internal/render internal/searchclient
+just test proto/recall/search/v1 internal/normalize internal/render internal/searchclient
+just test providers examples provider cmd
 just test
 ```
 
-Then validate direct provider textproto calls for representative providers and a federated `recall` run with the operator config after every enabled provider has been migrated.
+Then validate representative direct provider textproto calls against in-repo providers only. Do not require the operator’s external providers or personal config to work as part of this repo change.
 
-The final acceptance criteria:
+Final acceptance criteria:
 
 - `recall` renders Jira-style detail rows without Jira-specific renderer code.
-- Slack timestamp rows are produced from title fields, not target-specific timestamp behavior.
+- Slack-style timestamp rows are produced from `timestamp` fields selected by format, not target metadata.
 - Ripgrep grouped line output remains compact.
+- Human timestamps are localized to the operator timezone without showing timezone suffixes.
 - JSON output preserves structured result fields and format hints.
-- All enabled providers compile and pass tests against the new proto.
+- Proto comments are complete enough for provider authors to implement without reverse-engineering recall internals.
+- All in-repo providers, provider binaries, SDK examples, and direct textproto examples use the new structured response.
+- The repo builds and tests against the new proto without old-contract compatibility shims.
+
+## Plan Notes
+
+## Summary
+
+Replace the current hit-shaped search response with a structured result model: providers return ordered, typed fields plus a declarative render format, while `recall` remains provider-agnostic and owns generic rendering, ranking, grouping, timestamp localization, open-target handling, and JSON output.
+
+The intended system shape:
+
+- Providers return **machine identity** separately from **rendered content**.
+- `id` remains stable provider-local identity and is not necessarily shown.
+- Rendered labels, snippets, timestamps, line numbers, ticket keys, statuses, and summaries are normal typed fields.
+- Providers suggest presentation through `format.title_fields` and `format.detail_fields`.
+- `recall` resolves those field keys generically; it does not add Jira/Slack/GitHub-specific renderer branches.
+- Open targets identify where to open; display positions such as Slack message timestamp, ripgrep line number, or Jira updated time are fields selected by the result format.
+
+This is a breaking change in `recall.search.v1`. There is no compatibility phase, no old-shape decoding, no transitional adapters, and no responsibility to migrate external providers in this repo. External providers will fail against the new contract until their owners update them.
+
+The protobuf contract should be self-documenting enough for provider authors to implement from `proto/recall/search/v1/search.proto` alone. Proto comments are part of the public contract and should define selector semantics, result identity, field key rules, format behavior, timestamp expectations, open-target boundaries, validation constraints, and concrete examples.
+
+The important boundaries:
+
+- **Provider contract**: stable ids, selectors, typed fields, open targets, optional group, optional score, optional render format, and thorough proto comments as the implementer-facing source of truth.
+- **Core normalization/ranking**: validate structured data, preserve JSON, filter by selector, rank by provider-local order and provider weight.
+- **Renderer**: turn fields and format hints into generic human output, including local-time timestamps and compact grouped rows.
+- **Openers**: use targets only for opening, not for display layout decisions.
+- **In-repo providers**: example, ripgrep, and GitHub providers migrate in the same change so this repo remains internally consistent and buildable.
+- **External providers**: out of scope for implementation; their contract is the documented proto.
+
+## Implementation details
+
+### Phase 1: Establish the structured result proto as the public contract
+
+Replace the current hit-shaped response with a structured result model in `proto/recall/search/v1/search.proto`, then regenerate Go bindings through the existing `Justfile` flow.
+
+The proto should be written as the primary public contract, not just a schema. Every service, message, field, and nested type should explain:
+
+- whether the value is provider-owned or recall-owned;
+- whether it is required, optional, or advisory;
+- how recall validates it;
+- how recall renders or preserves it;
+- what provider authors should not encode there;
+- representative examples for common provider families.
+
+Target shape:
+
+```proto
+message SearchResponse {
+  repeated Result results = 1;
+  repeated Warning warnings = 2;
+
+  message Result {
+    string id = 1;
+    string selector = 2;
+    repeated Field fields = 3;
+    repeated OpenTarget targets = 4;
+    SearchGroup group = 5;
+    optional double score = 6;
+    Format format = 7;
+
+    message Field {
+      string key = 1;
+
+      oneof value {
+        string text = 2;
+        int64 integer = 3;
+        google.protobuf.Timestamp timestamp = 4;
+      }
+    }
+
+    message Format {
+      repeated string title_fields = 1;
+      repeated string detail_fields = 2;
+    }
+  }
+
+  message Warning {
+    string message = 1;
+    optional string code = 2;
+  }
+}
+```
+
+Keep `OpenTarget`, `UriTarget`, `FileTarget`, `SearchGroup`, `SearchSurface`, `SearchRequest`, and `ListCapabilities` as top-level protocol concepts unless implementation exposes a clear reason to nest them.
+
+Document the structured result model directly in the proto:
+
+- `Result.id` is stable provider-local machine identity, not necessarily display text.
+- `Result.selector` is a full provider-local `object:match` selector and should match a listed `SearchSurface` when capabilities are available.
+- `Field.key` is stable snake_case machine identity such as `ticket`, `summary`, `timestamp`, `line`, `column`, `snippet`, `status`, or `updated_at`.
+- Field keys are unique within one result.
+- Text fields are provider-normalized text; recall may collapse whitespace for human output.
+- Integer fields are numeric facts such as line, column, count, priority rank, or sequence number.
+- Timestamp fields are UTC instants from providers; recall renders human output in the operator’s local timezone without showing a timezone suffix.
+- `Format.title_fields` and `Format.detail_fields` are presentation hints, not schema declarations.
+- Fields not referenced by `Format` remain preserved in JSON.
+
+Remove `UriTarget.timestamp`. URI targets identify what to open. If a source needs timestamp data to open correctly, encode it in the URI/permalink. If a timestamp should be displayed, return it as a normal `timestamp` field and select it through `format.title_fields` or `format.detail_fields`.
+
+Document open-target boundaries clearly:
+
+- `FileTarget.line` and `FileTarget.column` are file open-position metadata.
+- Slack-style message timestamps, Jira updated time, GitHub authored time, and similar display facts belong in fields.
+- Open targets should not carry display-only data.
+- Group targets open the group; result targets open the individual result.
+
+Contract tests should lock the stable shape:
+
+- `SearchRequest` still has `query`, optional `limit`, and `selector_hints`.
+- `SearchResponse` contains `results` and nested `Warning`.
+- `SearchResponse.Result` contains `id`, `selector`, `fields`, `targets`, `group`, `score`, and `format`.
+- `SearchResponse.Result.Field.Value` supports `text`, `integer`, and `timestamp`.
+- `UriTarget` does not contain display timestamp fields.
+
+### Phase 2: Localize structured-result handling in core normalization
+
+Replace `SearchHit` usage in recall core with the new result model. Do not add compatibility adapters for old `SearchHit.title`, `snippet`, `kind`, or `occurred_at`; old providers are simply no longer compatible with this contract.
+
+Introduce a small internal abstraction around result fields so normalization, rendering, ranking, and filtering can ask common questions without each reimplementing generated-proto lookups. This keeps the generated nested Go names contained and makes renderer behavior easier to test.
+
+Core behavior stays stable:
+
+- `internal/searchclient` reads and writes the new protobuf messages directly.
+- `internal/normalize` validates result ids, selectors, fields, targets, groups, warnings, and timestamps.
+- Ranking continues to use provider-local result order and provider weight.
+- Field contents do not affect ranking.
+- Selector filtering continues to inspect each result’s provider-local `selector`.
+- JSON output preserves structured fields and provider format hints.
+
+Validation should reject behavior-affecting malformed data:
+
+- empty `id`
+- empty `selector`
+- duplicate field keys within one result
+- field with empty `key`
+- field with no `value` kind
+- invalid timestamp values
+- non-finite score
+- malformed URI target
+- file target with `column` but no `line`
+
+### Phase 3: Render from fields and declarative format hints
+
+Refactor `internal/render` so human output is derived from result fields and `Result.Format`, not legacy title/snippet/timestamp fields.
+
+Renderer ownership:
+
+- Providers choose stable field keys and suggest field order.
+- `recall` owns separators, styles, labels, timestamp localization, OSC 8 links, grouping, and fallbacks.
+- No source-specific renderer branches should be added for Jira, Slack, GitHub, or similar providers.
+
+Format semantics:
+
+- `format.title_fields` controls the first-line content.
+- `format.detail_fields` controls ordered detail rows.
+- Fields not listed in either format list are still preserved in JSON.
+- Unknown format keys are skipped during human rendering.
+- Duplicate keys in format lists are ignored after the first occurrence.
+- If `title_fields` is empty or all referenced fields are missing, fallback uses the first available field as the title.
+- If `detail_fields` is empty, fallback renders remaining fields as details.
+- If `format` is absent, render the first field as the title line and remaining fields as details.
+
+Do not add provider-controlled labels initially. `Field.key` remains the stable machine key, and recall humanizes keys for detail rows, such as `updated_at` → `updated at`.
+
+Timestamp rendering assumes providers supply UTC instants. Human output localizes to the operator’s timezone and omits timezone suffixes. JSON preserves protobuf timestamps.
+
+Renderer tests should cover:
+
+- Jira-style `ticket + summary` title with ordered detail rows.
+- Slack-style `timestamp + snippet` title.
+- Ripgrep-style `line + snippet` grouped output.
+- Fallback rendering when `format` is absent.
+- Missing title/detail keys.
+- Duplicate format keys.
+- JSON preservation of fields not shown in human output.
+
+### Phase 4: Migrate every in-repo provider and provider-facing binary
+
+Update all in-repo providers to return the new response shape directly. This is core scope: the repository should not contain first-party providers, examples, or command binaries that still emit the old hit-shaped contract.
+
+This should not mechanically wrap old `title` and `snippet`; each provider should expose fields that match its source semantics.
+
+Provider mapping guidance:
+
+- Do not put the recall provider id into result ids.
+- Keep `id` stable and provider-local.
+- Put user-visible identifiers into fields when they should render.
+- Put snippets into a `snippet` field.
+- Put source-domain times into named timestamp fields such as `updated_at`, `created_at`, `timestamp`, or `authored_at`.
+- Use `format.title_fields` and `format.detail_fields` to express preferred generic presentation.
+- Encode open-required time information in the URI/permalink, not in target metadata.
+
+In-repo coverage must include:
+
+- `examples/exampleprovider`: fixture fields and formats for notes/events, with SDK tests exercising `Search` and `ListCapabilities`.
+- `cmd/recall-example-provider`: direct textproto examples and integration coverage pass with structured responses.
+- `providers/ripgrep`: `path`, `line`, `column`, and `snippet` fields with compact grouped line output.
+- `cmd/recall-ripgrep-provider`: binary smoke tests and direct provider snippets use structured fields.
+- `providers/gh`: issue, PR, repo, commit, and code fields with source-appropriate title and detail formats.
+- `cmd/recall-gh-provider`: selector configuration remains intact while emitted results use fields.
+- `provider` SDK package tests: public API examples demonstrate `Result`, `Field`, and `Format`.
+- repo examples and docs that pipe `SearchRequest` directly into providers.
+
+Provider tests should assert meaningful field keys and formats, not just that old title/snippet strings were preserved somewhere. First-party providers should remain living examples for external implementers.
+
+### Phase 5: Define the external provider boundary in docs only
+
+External and sibling providers are not implementation scope for this repo. There is no compatibility mode to keep them running, and no coordinated migration work here. Their owners are responsible for updating to the documented proto contract.
+
+The recall repo should only provide:
+
+- a thoroughly documented protobuf contract;
+- public SDK examples that compile against the new shape;
+- first-party in-repo providers as reference implementations;
+- clear docs that old hit-shaped providers are incompatible.
+
+Do not add temporary adapters, legacy request/response translation, old field names, or mixed old/new validation paths to support external providers.
+
+Validation should avoid relying on the operator’s personal config if it includes external providers that have not migrated. Use in-repo configs and first-party providers for acceptance.
+
+### Phase 6: Refresh docs, SDK examples, and debugging snippets
+
+Update docs so provider authors understand the new result model and the boundary between identity, fields, format, and targets.
+
+Docs should cover:
+
+- `README.md` provider SDK example.
+- `docs/recall-compatible-search.md`.
+- provider-specific docs such as `docs/recall-gh-provider.md` and `docs/recall-ripgrep-provider.md`.
+- example config and direct textproto snippets.
+
+Docs should defer to the proto for detailed contract rules instead of duplicating every rule, but they should clearly point implementers to `proto/recall/search/v1/search.proto` as the authoritative reference.
+
+Docs should make these distinctions explicit:
+
+- `id` is stable provider-local machine identity.
+- rendered identifiers, timestamps, line numbers, snippets, and statuses are fields.
+- `format.title_fields` and `format.detail_fields` select fields for human output.
+- fields not rendered in human output remain available in JSON.
+- open targets are for opening only and should not carry display-only data.
+- provider examples should show complete `Result` payloads with fields and format hints.
+- external providers must update themselves to the new breaking contract.
+
+### Phase 7: Validate by contract layer, in-repo providers, then full repo
+
+Validation should include build, lint, focused tests, and full tests. Build is required because generated proto and API drift can fail compilation before narrower tests expose the issue.
+
+Use the repo’s Justfile workflow:
+
+```bash
+just build
+just lint proto/recall/search/v1 internal/normalize internal/render internal/searchclient
+just test proto/recall/search/v1 internal/normalize internal/render internal/searchclient
+just test providers examples provider cmd
+just test
+```
+
+Then validate representative direct provider textproto calls against in-repo providers only. Do not require the operator’s external providers or personal config to work as part of this repo change.
+
+Final acceptance criteria:
+
+- `recall` renders Jira-style detail rows without Jira-specific renderer code.
+- Slack-style timestamp rows are produced from `timestamp` fields selected by format, not target metadata.
+- Ripgrep grouped line output remains compact.
+- Human timestamps are localized to the operator timezone without showing timezone suffixes.
+- JSON output preserves structured result fields and format hints.
+- Proto comments are complete enough for provider authors to implement without reverse-engineering recall internals.
+- All in-repo providers, provider binaries, SDK examples, and direct textproto examples use the new structured response.
+- The repo builds and tests against the new proto without old-contract compatibility shims.

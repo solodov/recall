@@ -8,11 +8,11 @@ This file tracks plans managed in the markdown-backed layout.
 
 ### [20260501-structured-search-result-format](./20260501-structured-search-result-format.md)
 - title: Structured search results with provider-suggested field formatting
-- status: active
+- status: implementing
 - currentPhase: 1
-- currentPhaseTitle: Replace the search proto and regenerate Go bindings
+- currentPhaseTitle: Establish the structured result proto as the public contract
 - nextPhase: 2
-- nextPhaseTitle: Update core normalization, ranking, and transport clients
+- nextPhaseTitle: Localize structured-result handling in core normalization
 - totalPhases: 7
 - updated: 2026-05-01
 
