@@ -60,6 +60,15 @@ Human output is grouped by source and provider-native context. When providers re
 - `recall-ripgrep-provider` searches local paths and file contents with ripgrep; see [docs/recall-ripgrep-provider.md](docs/recall-ripgrep-provider.md).
 - `recall-gh-provider` searches GitHub code, commits, issues, pull requests, and repositories through `gh`; see [docs/recall-gh-provider.md](docs/recall-gh-provider.md).
 
+## Related providers
+
+These integrations are separate provider binaries. Add one to your registry and it becomes another recall source: it advertises selectors in `recall -ls`, accepts provider-owned query syntax, returns structured fields, and supplies open targets back to the original system.
+
+- [recall-notion](https://github.com/solodov/recall-notion) adds Notion workspace pages as searchable sources.
+- [recall-slack](https://github.com/solodov/recall-slack) adds Slack conversations and message links.
+- [recall-jira](https://github.com/solodov/recall-jira) adds Jira issues with source-native keys, statuses, and issue URLs.
+- [recall-org-roam](https://github.com/solodov/recall-org-roam) adds local Org-roam notes and file targets.
+
 ## How it works
 
 A recall source is a provider implementing `recall.search.v1.SearchProvider` from [proto/recall/search/v1/search.proto](proto/recall/search/v1/search.proto). Providers advertise local search surfaces such as `file:content`, `file:name`, or `pr:content`; recall prefixes them with the configured source id, such as `code:file:content` or `github:pr:content`.
