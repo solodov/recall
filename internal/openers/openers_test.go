@@ -24,7 +24,7 @@ func TestParseRecallURLDecodesFileTarget(t *testing.T) {
 	}
 }
 
-func TestOpenPrefersSpecificOpenerOverGenericDefault(t *testing.T) {
+func TestResolvePrefersSpecificOpenerOverGenericDefault(t *testing.T) {
 	cfg := &configv1.RecallConfig{Openers: []*configv1.Opener{
 		{
 			Id:          "file-default",
@@ -47,14 +47,12 @@ func TestOpenPrefersSpecificOpenerOverGenericDefault(t *testing.T) {
 			Args:        []string{"+call cursor({line}, {column})", "{path}"},
 		},
 	}}
-	runner := &recordingRunner{}
-
-	err := Open(context.Background(), cfg, "recall://open?v=1&source=code&selector=file%3Acontent&type=file&path=%2Fworkspace%2Fmain.kt&line=12&column=4", Options{Runner: runner.Run})
+	invocation, err := Resolve(cfg, "recall://open?v=1&source=code&selector=file%3Acontent&type=file&path=%2Fworkspace%2Fmain.kt&line=12&column=4", Options{})
 	if err != nil {
-		t.Fatalf("Open returned error: %v", err)
+		t.Fatalf("Resolve returned error: %v", err)
 	}
-	if runner.command != "editor" || !reflect.DeepEqual(runner.args, []string{"+call cursor(12, 4)", "/workspace/main.kt"}) {
-		t.Fatalf("runner = %q %#v", runner.command, runner.args)
+	if invocation.Command != "editor" || !reflect.DeepEqual(invocation.Args, []string{"+call cursor(12, 4)", "/workspace/main.kt"}) || invocation.OpenerID != "code" || invocation.Fallback {
+		t.Fatalf("invocation = %#v", invocation)
 	}
 }
 

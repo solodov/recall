@@ -20,6 +20,7 @@ const (
 // code does not need to repeatedly inspect generated protobuf oneof wrappers.
 type Field struct {
 	Key       string
+	Hidden    bool
 	Kind      FieldKind
 	Text      string
 	Integer   int64
@@ -63,7 +64,7 @@ func DecodeField(protoField *searchv1.SearchResponse_Result_Field) (Field, bool)
 	if protoField == nil {
 		return Field{}, false
 	}
-	field := Field{Key: protoField.GetKey()}
+	field := Field{Key: protoField.GetKey(), Hidden: protoField.GetHidden()}
 	switch value := protoField.GetValue().(type) {
 	case *searchv1.SearchResponse_Result_Field_Text:
 		field.Kind = FieldKindText

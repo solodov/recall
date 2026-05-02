@@ -580,7 +580,7 @@ type SearchResponse_Result struct {
 	Selector string `protobuf:"bytes,2,opt,name=selector,proto3" json:"selector,omitempty"`
 	// Typed provider-owned facts about this result. Field keys must be unique
 	// within a result and should be stable snake_case names. Recall renders
-	// fields selected by format and preserves all fields in JSON.
+	// visible fields selected by format and preserves all fields in JSON.
 	Fields []*SearchResponse_Result_Field `protobuf:"bytes,3,rep,name=fields,proto3" json:"fields,omitempty"`
 	// Openable targets for this result, in provider-preferred order. The first
 	// target is the primary terminal link when one exists; remaining targets may
@@ -734,14 +734,18 @@ func (x *SearchResponse_Warning) GetCode() string {
 }
 
 // Field is one typed result fact. It may be displayed in human output when
-// selected by Format, and is always preserved in JSON. Exactly one value kind
-// must be set.
+// visible and selected by Format, and is always preserved in JSON. Exactly
+// one value kind must be set.
 type SearchResponse_Result_Field struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Stable provider-owned field key, preferably snake_case. Examples include
 	// path, line, column, snippet, ticket, summary, status, timestamp,
 	// updated_at, author, repository, and url.
 	Key string `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	// Hidden marks this field as machine-readable-only for normal human
+	// rendering. Hidden fields are ignored by Format and fallback layout, but
+	// remain available in JSON. Unset or false means the field is visible.
+	Hidden *bool `protobuf:"varint,5,opt,name=hidden,proto3,oneof" json:"hidden,omitempty"`
 	// Types that are valid to be assigned to Value:
 	//
 	//	*SearchResponse_Result_Field_Text
@@ -787,6 +791,13 @@ func (x *SearchResponse_Result_Field) GetKey() string {
 		return x.Key
 	}
 	return ""
+}
+
+func (x *SearchResponse_Result_Field) GetHidden() bool {
+	if x != nil && x.Hidden != nil {
+		return *x.Hidden
+	}
+	return false
 }
 
 func (x *SearchResponse_Result_Field) GetValue() isSearchResponse_Result_Field_Value {
@@ -853,16 +864,16 @@ func (*SearchResponse_Result_Field_Integer) isSearchResponse_Result_Field_Value(
 func (*SearchResponse_Result_Field_Timestamp) isSearchResponse_Result_Field_Value() {}
 
 // Format is a provider suggestion for generic human rendering. It references
-// Field.key values and does not declare which fields exist. Unknown or
-// missing keys are skipped. Duplicate keys are ignored after their first
-// occurrence. Fields not referenced here remain available in JSON.
+// Field.key values and does not declare which fields exist. Hidden, unknown,
+// or missing keys are skipped. Duplicate keys are ignored after their first
+// occurrence. Fields not rendered here remain available in JSON.
 type SearchResponse_Result_Format struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Field keys that form the primary result line. If empty or if all keys
-	// are missing, recall falls back to the first available field.
+	// are hidden or missing, recall falls back to the first visible field.
 	TitleFields []string `protobuf:"bytes,1,rep,name=title_fields,json=titleFields,proto3" json:"title_fields,omitempty"`
 	// Field keys rendered as ordered detail rows after the title. If empty,
-	// recall may render fields not used in the title as details.
+	// recall may render visible fields not used in the title as details.
 	DetailFields  []string `protobuf:"bytes,2,rep,name=detail_fields,json=detailFields,proto3" json:"detail_fields,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -928,10 +939,10 @@ const file_proto_recall_search_v1_search_proto_rawDesc = "" +
 	"\rSearchSurface\x12\x1a\n" +
 	"\bselector\x18\x01 \x01(\tR\bselector\x12\x14\n" +
 	"\x05title\x18\x02 \x01(\tR\x05title\x12 \n" +
-	"\vdescription\x18\x03 \x01(\tR\vdescription\"\x9d\x06\n" +
+	"\vdescription\x18\x03 \x01(\tR\vdescription\"\xc5\x06\n" +
 	"\x0eSearchResponse\x12A\n" +
 	"\aresults\x18\x01 \x03(\v2'.recall.search.v1.SearchResponse.ResultR\aresults\x12D\n" +
-	"\bwarnings\x18\x02 \x03(\v2(.recall.search.v1.SearchResponse.WarningR\bwarnings\x1a\xba\x04\n" +
+	"\bwarnings\x18\x02 \x03(\v2(.recall.search.v1.SearchResponse.WarningR\bwarnings\x1a\xe2\x04\n" +
 	"\x06Result\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1a\n" +
 	"\bselector\x18\x02 \x01(\tR\bselector\x12E\n" +
@@ -939,13 +950,15 @@ const file_proto_recall_search_v1_search_proto_rawDesc = "" +
 	"\atargets\x18\x04 \x03(\v2\x1c.recall.search.v1.OpenTargetR\atargets\x123\n" +
 	"\x05group\x18\x05 \x01(\v2\x1d.recall.search.v1.SearchGroupR\x05group\x12\x19\n" +
 	"\x05score\x18\x06 \x01(\x01H\x00R\x05score\x88\x01\x01\x12F\n" +
-	"\x06format\x18\a \x01(\v2..recall.search.v1.SearchResponse.Result.FormatR\x06format\x1a\x90\x01\n" +
+	"\x06format\x18\a \x01(\v2..recall.search.v1.SearchResponse.Result.FormatR\x06format\x1a\xb8\x01\n" +
 	"\x05Field\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x1b\n" +
+	"\x06hidden\x18\x05 \x01(\bH\x01R\x06hidden\x88\x01\x01\x12\x14\n" +
 	"\x04text\x18\x02 \x01(\tH\x00R\x04text\x12\x1a\n" +
 	"\ainteger\x18\x03 \x01(\x03H\x00R\ainteger\x12:\n" +
 	"\ttimestamp\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampH\x00R\ttimestampB\a\n" +
-	"\x05value\x1aP\n" +
+	"\x05valueB\t\n" +
+	"\a_hidden\x1aP\n" +
 	"\x06Format\x12!\n" +
 	"\ftitle_fields\x18\x01 \x03(\tR\vtitleFields\x12#\n" +
 	"\rdetail_fields\x18\x02 \x03(\tR\fdetailFieldsB\b\n" +

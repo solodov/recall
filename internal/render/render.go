@@ -30,6 +30,70 @@ type HumanOptions struct {
 	ProviderConfigTargets map[string]*searchv1.OpenTarget
 }
 
+// ResultSummary is the compact provider-independent presentation shape shared
+// by interactive frontends that need one row per blended search result.
+type ResultSummary struct {
+	ProviderID string
+	Selector   string
+	GroupTitle string
+	Title      string
+	Details    []FieldSummary
+	Target     *searchv1.OpenTarget
+
+	Normalized normalize.Result
+}
+
+// FieldSummary is one display-ready detail fact for a summarized search result.
+type FieldSummary struct {
+	Key   string
+	Label string
+	Value string
+}
+
+// SummarizeResults returns blended result rows using the same field layout rules
+// as human output while leaving grouping and styling to the caller.
+func SummarizeResults(result *orchestrator.Result) []ResultSummary {
+	if result == nil {
+		return nil
+	}
+	normalizedResults := ungroupedResults(result)
+	summaries := make([]ResultSummary, 0, len(normalizedResults))
+	for _, normalized := range normalizedResults {
+		searchResult := normalized.Result
+		if searchResult == nil {
+			continue
+		}
+		layout := layoutResult(searchResult)
+		details := make([]FieldSummary, 0, len(layout.detailFields))
+		for _, field := range layout.detailFields {
+			value := fieldValue(field)
+			if value == "" {
+				continue
+			}
+			details = append(details, FieldSummary{Key: field.Key, Label: humanizeFieldKey(field.Key), Value: value})
+		}
+
+		groupTitle := ""
+		if group := searchResult.GetGroup(); group != nil {
+			groupTitle = singleLine(group.GetTitle())
+			if groupTitle == "" {
+				groupTitle = singleLine(group.GetKey())
+			}
+		}
+
+		summaries = append(summaries, ResultSummary{
+			ProviderID: normalized.ProviderID,
+			Selector:   strings.TrimSpace(searchResult.GetSelector()),
+			GroupTitle: groupTitle,
+			Title:      titleText(layout.titleFields, searchResult.GetId()),
+			Details:    details,
+			Target:     firstTarget(searchResult.GetTargets()),
+			Normalized: normalized,
+		})
+	}
+	return summaries
+}
+
 // WriteHuman renders normalized structured results with compact terminal rules.
 // Providers choose fields and suggested order; recall owns grouping, labels,
 // timestamp localization, terminal links, secondary actions, and fallbacks.
@@ -93,7 +157,7 @@ func writeGroupedResult(writer io.Writer, providerID string, group groupedResult
 	layout := layoutResult(result)
 	if line, label, target, ok := groupedLineTitle(group, result, layout.titleFields); ok {
 		lineLabel := styleLineNumber(fmt.Sprintf("%5d:", line))
-		fmt.Fprintf(writer, "  %s %s\n", lineLabel, terminalLink(label, recallOpenURL(providerID, result.GetSelector(), target)))
+		fmt.Fprintf(writer, "  %s %s\n", lineLabel, terminalLink(label, OpenURL(providerID, result.GetSelector(), target)))
 		writeDetailRows(writer, "    ", layout.detailFields)
 		if actions := groupedSecondaryActions(providerID, result.GetSelector(), group, result.GetTargets()); actions != "" {
 			fmt.Fprintf(writer, "    actions: %s\n", actions)
@@ -102,7 +166,7 @@ func writeGroupedResult(writer io.Writer, providerID string, group groupedResult
 	}
 	if timestamp, label, target, ok := groupedTimestampTitle(result, layout.titleFields); ok {
 		timeLabel := styleLineNumber(formatTimestampLabel(timestamp) + ":")
-		fmt.Fprintf(writer, "  %s %s\n", timeLabel, terminalLink(label, recallOpenURL(providerID, result.GetSelector(), target)))
+		fmt.Fprintf(writer, "  %s %s\n", timeLabel, terminalLink(label, OpenURL(providerID, result.GetSelector(), target)))
 		writeDetailRows(writer, "    ", layout.detailFields)
 		if actions := groupedSecondaryActions(providerID, result.GetSelector(), group, result.GetTargets()); actions != "" {
 			fmt.Fprintf(writer, "    actions: %s\n", actions)
@@ -123,7 +187,7 @@ func linkedTitle(providerID string, result *searchv1.SearchResponse_Result, labe
 		label = singleLine(result.GetId())
 	}
 	if target := firstTarget(result.GetTargets()); target != nil {
-		return terminalLink(label, recallOpenURL(providerID, result.GetSelector(), target))
+		return terminalLink(label, OpenURL(providerID, result.GetSelector(), target))
 	}
 	return label
 }
@@ -131,7 +195,7 @@ func linkedTitle(providerID string, result *searchv1.SearchResponse_Result, labe
 func linkedGroupTitle(providerID string, group groupedResults) string {
 	title := styleGroupTitle(singleLine(group.title))
 	if target := firstTarget(group.targets); target != nil {
-		return terminalLink(title, recallOpenURL(providerID, commonGroupSelector(group), target))
+		return terminalLink(title, OpenURL(providerID, commonGroupSelector(group), target))
 	}
 	return title
 }
@@ -139,7 +203,7 @@ func linkedGroupTitle(providerID string, group groupedResults) string {
 func linkedGroupHeaderLabel(providerID string, group groupedResults, configTargets map[string]*searchv1.OpenTarget) string {
 	label := styleGroupLabel("[" + groupHeaderLabel(providerID, group) + "]")
 	if target := configTargets[providerID]; target != nil {
-		return terminalLink(label, recallOpenURL(providerID, commonGroupSelector(group), target))
+		return terminalLink(label, OpenURL(providerID, commonGroupSelector(group), target))
 	}
 	return label
 }
@@ -424,7 +488,7 @@ func groupResults(results []normalize.Result) []groupedResults {
 }
 
 func layoutResult(result *searchv1.SearchResponse_Result) resultLayout {
-	fields := normalize.Fields(result)
+	fields := visibleFields(normalize.Fields(result))
 	if len(fields) == 0 {
 		return resultLayout{}
 	}
@@ -458,6 +522,18 @@ func layoutResult(result *searchv1.SearchResponse_Result) resultLayout {
 		}
 	}
 	return layout
+}
+
+// visibleFields keeps machine-readable-only fields out of normal human layout
+// while preserving provider order for every field that remains eligible.
+func visibleFields(fields []normalize.Field) []normalize.Field {
+	visible := make([]normalize.Field, 0, len(fields))
+	for _, field := range fields {
+		if !field.Hidden {
+			visible = append(visible, field)
+		}
+	}
+	return visible
 }
 
 func selectFormatFields(keys []string, fieldByKey map[string]normalize.Field, used map[string]bool) []normalize.Field {
@@ -540,7 +616,7 @@ func secondaryActionsFiltered(providerID string, selector string, targets []*sea
 			continue
 		}
 		label := targetLabel(target)
-		actions = append(actions, terminalLink(label, recallOpenURL(providerID, selector, target)))
+		actions = append(actions, terminalLink(label, OpenURL(providerID, selector, target)))
 	}
 	return strings.Join(actions, " ")
 }
@@ -576,7 +652,9 @@ func targetLabel(target *searchv1.OpenTarget) string {
 	return "target"
 }
 
-func recallOpenURL(providerID string, selector string, target *searchv1.OpenTarget) string {
+// OpenURL encodes a structured open target into the recall:// URL understood by
+// recall-open and interactive frontends.
+func OpenURL(providerID string, selector string, target *searchv1.OpenTarget) string {
 	if target == nil {
 		return ""
 	}

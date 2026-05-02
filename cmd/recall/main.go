@@ -10,6 +10,7 @@ import (
 
 func main() {
 	app := cli.App{
+		Stdin:  os.Stdin,
 		Stdout: os.Stdout,
 		Stderr: os.Stderr,
 	}

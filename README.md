@@ -8,6 +8,12 @@ See [docs/why.md](docs/why.md) for the motivation: making personal and work info
 
 ## What it feels like
 
+Start the interactive search TUI:
+
+```bash
+recall
+```
+
 List the sources and surfaces you have available:
 
 ```bash

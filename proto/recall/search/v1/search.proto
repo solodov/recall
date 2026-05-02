@@ -87,25 +87,28 @@ import "google/protobuf/timestamp.proto";
 //   - id is provider-local machine identity and may never be shown to humans.
 //   - selector identifies the provider-local surface that produced the result.
 //   - fields contain typed display and machine-readable facts.
-//   - format suggests which fields recall should render in human output.
+//   - field visibility marks machine-readable-only facts that should stay out
+//     of default human output.
+//   - format suggests which visible fields recall should render in human output.
 //   - targets describe where the result can be opened.
 //
 // Field keys are stable provider-owned identifiers, preferably snake_case, such
 // as ticket, summary, timestamp, line, column, snippet, status, updated_at, or
 // author. Field keys must be unique within a result. Providers should use fields
 // for every display fact, including file line numbers, Slack message timestamps,
-// Jira ticket keys, GitHub states, and snippets. Recall may collapse whitespace
-// in text fields for terminal output, but preserves the original structured
-// fields in JSON.
+// Jira ticket keys, GitHub states, and snippets. Providers may also include
+// machine-readable-only fields and mark them hidden. Recall may collapse
+// whitespace in text fields for terminal output, but preserves the original
+// structured fields in JSON.
 //
 // Timestamp fields are instants. Providers should populate UTC instants; recall
 // renders human output in the operator's local timezone without a timezone
 // suffix. JSON output preserves protobuf timestamp values.
 //
 // Format is a presentation hint, not a schema declaration. title_fields and
-// detail_fields reference field keys. Recall skips missing or duplicated format
-// keys during human rendering, falls back to available fields when format is
-// absent or empty, and preserves fields not referenced by format in JSON.
+// detail_fields reference field keys. Recall skips hidden, missing, or duplicated
+// format keys during human rendering, falls back to visible fields when format
+// is absent or empty, and preserves fields not rendered by human output in JSON.
 //
 // Open targets are for opening only. FileTarget.line and FileTarget.column are
 // file open-position metadata. Display positions such as a Slack message
@@ -201,7 +204,7 @@ message SearchResponse {
 
     // Typed provider-owned facts about this result. Field keys must be unique
     // within a result and should be stable snake_case names. Recall renders
-    // fields selected by format and preserves all fields in JSON.
+    // visible fields selected by format and preserves all fields in JSON.
     repeated Field fields = 3;
 
     // Openable targets for this result, in provider-preferred order. The first
@@ -222,13 +225,18 @@ message SearchResponse {
     Format format = 7;
 
     // Field is one typed result fact. It may be displayed in human output when
-    // selected by Format, and is always preserved in JSON. Exactly one value kind
-    // must be set.
+    // visible and selected by Format, and is always preserved in JSON. Exactly
+    // one value kind must be set.
     message Field {
       // Stable provider-owned field key, preferably snake_case. Examples include
       // path, line, column, snippet, ticket, summary, status, timestamp,
       // updated_at, author, repository, and url.
       string key = 1;
+
+      // Hidden marks this field as machine-readable-only for normal human
+      // rendering. Hidden fields are ignored by Format and fallback layout, but
+      // remain available in JSON. Unset or false means the field is visible.
+      optional bool hidden = 5;
 
       oneof value {
         // Provider-normalized text. Recall may collapse whitespace for terminal
@@ -247,16 +255,16 @@ message SearchResponse {
     }
 
     // Format is a provider suggestion for generic human rendering. It references
-    // Field.key values and does not declare which fields exist. Unknown or
-    // missing keys are skipped. Duplicate keys are ignored after their first
-    // occurrence. Fields not referenced here remain available in JSON.
+    // Field.key values and does not declare which fields exist. Hidden, unknown,
+    // or missing keys are skipped. Duplicate keys are ignored after their first
+    // occurrence. Fields not rendered here remain available in JSON.
     message Format {
       // Field keys that form the primary result line. If empty or if all keys
-      // are missing, recall falls back to the first available field.
+      // are hidden or missing, recall falls back to the first visible field.
       repeated string title_fields = 1;
 
       // Field keys rendered as ordered detail rows after the title. If empty,
-      // recall may render fields not used in the title as details.
+      // recall may render visible fields not used in the title as details.
       repeated string detail_fields = 2;
     }
   }

@@ -155,10 +155,11 @@ func TestWriteHumanSkipsMissingFormatKeys(t *testing.T) {
 		Selector: "issue:content",
 		Fields: []*searchv1.SearchResponse_Result_Field{
 			textField("summary", "Investigate refund state"),
+			hiddenTextField("raw_payload", "machine-only state"),
 			textField("status", "Open"),
 		},
 		Targets: []*searchv1.OpenTarget{uriTarget("https://example.invalid/browse/OPS-43")},
-		Format:  format([]string{"missing_title", "summary"}, []string{"missing_detail", "status"}),
+		Format:  format([]string{"missing_title", "raw_payload", "summary"}, []string{"missing_detail", "raw_payload", "status"}),
 	})
 	var output bytes.Buffer
 
@@ -172,8 +173,40 @@ func TestWriteHumanSkipsMissingFormatKeys(t *testing.T) {
 			t.Fatalf("missing-key output %q does not contain %q", text, want)
 		}
 	}
-	if strings.Contains(text, "missing") {
-		t.Fatalf("missing-key output %q rendered an unknown format key", text)
+	for _, unwanted := range []string{"missing", "raw payload", "machine-only state"} {
+		if strings.Contains(text, unwanted) {
+			t.Fatalf("missing-key output %q rendered hidden or unknown format key %q", text, unwanted)
+		}
+	}
+}
+
+func TestWriteHumanFallbackSkipsHiddenFields(t *testing.T) {
+	result := providerResult("notes", &searchv1.SearchResponse_Result{
+		Id:       "note:hidden-fields",
+		Selector: "note:content",
+		Fields: []*searchv1.SearchResponse_Result_Field{
+			hiddenTextField("raw_payload", "machine-only payload"),
+			textField("title", "Visible note"),
+			hiddenTextField("debug_url", "https://example.invalid/debug"),
+			textField("snippet", "Visible context"),
+		},
+	})
+	var output bytes.Buffer
+
+	if err := WriteHuman(&output, result, HumanOptions{Ungrouped: true}); err != nil {
+		t.Fatalf("WriteHuman returned error: %v", err)
+	}
+
+	text := stripOSC8(output.String())
+	for _, want := range []string{"[notes] Visible note (note:content)", "  snippet: Visible context"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("hidden-field fallback output %q does not contain %q", text, want)
+		}
+	}
+	for _, unwanted := range []string{"raw payload", "machine-only payload", "debug url", "https://example.invalid/debug"} {
+		if strings.Contains(text, unwanted) {
+			t.Fatalf("hidden-field fallback output %q rendered hidden field %q", text, unwanted)
+		}
 	}
 }
 
@@ -224,8 +257,8 @@ func TestWriteHumanGroupedLinksSourceLabelToProviderConfig(t *testing.T) {
 	}
 }
 
-func TestRecallOpenURLDoesNotDuplicateURIScheme(t *testing.T) {
-	openURL := recallOpenURL("notes", "entry:content", uriTarget("org-protocol:/roam-node?node=89808715-6315-4484-B726-DFC9F4F2345D"))
+func TestOpenURLDoesNotDuplicateURIScheme(t *testing.T) {
+	openURL := OpenURL("notes", "entry:content", uriTarget("org-protocol:/roam-node?node=89808715-6315-4484-B726-DFC9F4F2345D"))
 
 	if strings.Contains(openURL, "scheme=") {
 		t.Fatalf("recall URL %q contains redundant scheme query parameter", openURL)
@@ -237,7 +270,7 @@ func TestRecallOpenURLDoesNotDuplicateURIScheme(t *testing.T) {
 
 func TestWriteJSONPreservesStructuredFieldsAndFailures(t *testing.T) {
 	issue := issueResult()
-	issue.Fields = append(issue.Fields, textField("internal_token", "preserved but hidden"))
+	issue.Fields = append(issue.Fields, hiddenTextField("internal_token", "preserved but hidden"))
 	result := providerResult("jira", issue)
 	result.BlendedResults = []rank.Result{{Normalized: result.Responses[0].Results[0], BlendedScore: 0.5}}
 	result.Failures = []orchestrator.ProviderFailure{{ProviderID: "bad", Err: assertErr("boom")}}
@@ -263,8 +296,9 @@ func TestWriteJSONPreservesStructuredFieldsAndFailures(t *testing.T) {
 					ID       string `json:"id"`
 					Selector string `json:"selector"`
 					Fields   []struct {
-						Key  string `json:"key"`
-						Text string `json:"text"`
+						Key    string `json:"key"`
+						Text   string `json:"text"`
+						Hidden bool   `json:"hidden"`
 					} `json:"fields"`
 					Format struct {
 						TitleFields  []string `json:"title_fields"`
@@ -299,7 +333,7 @@ func TestWriteJSONPreservesStructuredFieldsAndFailures(t *testing.T) {
 	if len(results) != 1 || results[0].ID != "issue:OPS-42" || results[0].Selector != "issue:content" {
 		t.Fatalf("results were not preserved: %#v", results)
 	}
-	if !containsField(results[0].Fields, "internal_token", "preserved but hidden") {
+	if !containsField(results[0].Fields, "internal_token", "preserved but hidden", true) {
 		t.Fatalf("JSON fields did not preserve hidden field: %#v", results[0].Fields)
 	}
 	if len(results[0].Format.TitleFields) != 2 || results[0].Format.TitleFields[0] != "ticket" || results[0].Format.DetailFields[1] != "updated_at" {
@@ -381,6 +415,12 @@ func integerField(key string, value int64) *searchv1.SearchResponse_Result_Field
 	}
 }
 
+func hiddenTextField(key string, value string) *searchv1.SearchResponse_Result_Field {
+	field := textField(key, value)
+	field.Hidden = proto.Bool(true)
+	return field
+}
+
 func timestampField(key string, value time.Time) *searchv1.SearchResponse_Result_Field {
 	return &searchv1.SearchResponse_Result_Field{
 		Key:   key,
@@ -404,11 +444,12 @@ func fileTarget(path string, line uint32, column uint32) *searchv1.OpenTarget {
 }
 
 func containsField(fields []struct {
-	Key  string `json:"key"`
-	Text string `json:"text"`
-}, key string, text string) bool {
+	Key    string `json:"key"`
+	Text   string `json:"text"`
+	Hidden bool   `json:"hidden"`
+}, key string, text string, hidden bool) bool {
 	for _, field := range fields {
-		if field.Key == key && field.Text == text {
+		if field.Key == key && field.Text == text && field.Hidden == hidden {
 			return true
 		}
 	}

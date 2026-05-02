@@ -12,6 +12,7 @@ import (
 	"github.com/solodov/recall/internal/normalize"
 	"github.com/solodov/recall/internal/orchestrator"
 	runtimepkg "github.com/solodov/recall/internal/runtime"
+	"github.com/solodov/recall/internal/tui"
 	configv1 "github.com/solodov/recall/proto/recall/config/v1"
 	searchv1 "github.com/solodov/recall/proto/recall/search/v1"
 )
@@ -192,6 +193,37 @@ func TestRunSuppressesProviderFailureDetailsOnDefaultHumanOutput(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want no provider diagnostics by default", stderr.String())
+	}
+}
+
+func TestRunNoArgsStartsTUIWhenInteractiveRunnerAvailable(t *testing.T) {
+	cfg := &configv1.RecallConfig{}
+	ranTUI := false
+	app := App{
+		Stdin:  strings.NewReader(""),
+		Stdout: &bytes.Buffer{},
+		Stderr: &bytes.Buffer{},
+		LoadConfig: func() (*configv1.RecallConfig, error) {
+			return cfg, nil
+		},
+		NewRuntime: newTestRuntime,
+		RunTUI: func(_ context.Context, options tui.Options) error {
+			ranTUI = true
+			if options.Config != cfg {
+				t.Fatalf("TUI config = %#v, want injected config", options.Config)
+			}
+			if options.Input == nil || options.Output == nil {
+				t.Fatalf("TUI streams were not forwarded: %#v", options)
+			}
+			return nil
+		},
+	}
+
+	if err := app.Run(context.Background(), nil); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if !ranTUI {
+		t.Fatal("Run did not start the TUI")
 	}
 }
 

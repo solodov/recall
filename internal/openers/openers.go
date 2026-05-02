@@ -57,6 +57,16 @@ type Options struct {
 	Logger          *slog.Logger
 }
 
+// Invocation is the concrete local command selected for one recall open target.
+type Invocation struct {
+	RecallURL string
+	Target    Target
+	Command   string
+	Args      []string
+	OpenerID  string
+	Fallback  bool
+}
+
 type openerCandidate struct {
 	valid       bool
 	openerID    string
@@ -118,18 +128,14 @@ func ParseRecallURL(raw string) (Target, error) {
 	return target, nil
 }
 
-// Open chooses the most specific configured opener for targetURL and executes
-// it. Generic openers act as defaults while source/selector-specific openers can
-// override them; if no opener matches, recall falls back to the platform open
-// command with the original target.
-func Open(ctx context.Context, cfg *configv1.RecallConfig, targetURL string, options Options) error {
+// Resolve chooses the most specific configured opener for targetURL without
+// executing it. Generic openers act as defaults while source/selector-specific
+// openers can override them; if no opener matches, recall falls back to the
+// platform open command with the original target.
+func Resolve(cfg *configv1.RecallConfig, targetURL string, options Options) (Invocation, error) {
 	target, err := ParseRecallURL(targetURL)
 	if err != nil {
-		return err
-	}
-	runner := options.Runner
-	if runner == nil {
-		runner = runCommand
+		return Invocation{}, err
 	}
 
 	var selected openerCandidate
@@ -139,14 +145,14 @@ func Open(ctx context.Context, cfg *configv1.RecallConfig, targetURL string, opt
 		}
 		args, ok, err := expandArgs(opener.GetArgs(), target)
 		if err != nil {
-			return fmt.Errorf("opener %q: %w", opener.GetId(), err)
+			return Invocation{}, fmt.Errorf("opener %q: %w", opener.GetId(), err)
 		}
 		if !ok {
 			continue
 		}
 		command := strings.TrimSpace(opener.GetCommand())
 		if command == "" {
-			return fmt.Errorf("opener %q command is empty", opener.GetId())
+			return Invocation{}, fmt.Errorf("opener %q command is empty", opener.GetId())
 		}
 		candidate := openerCandidate{
 			valid:       true,
@@ -160,35 +166,49 @@ func Open(ctx context.Context, cfg *configv1.RecallConfig, targetURL string, opt
 		}
 	}
 	if selected.valid {
-		return runAndLog(ctx, runner, options.Logger, targetURL, target, selected.command, selected.args, selected.openerID, false)
+		return Invocation{RecallURL: targetURL, Target: target, Command: selected.command, Args: selected.args, OpenerID: selected.openerID}, nil
 	}
 
 	command, args := fallbackInvocation(target, options)
-	return runAndLog(ctx, runner, options.Logger, targetURL, target, command, args, "", true)
+	return Invocation{RecallURL: targetURL, Target: target, Command: command, Args: args, Fallback: true}, nil
 }
 
-func runAndLog(ctx context.Context, runner Runner, logger *slog.Logger, recallURL string, target Target, command string, args []string, openerID string, fallback bool) error {
-	attrs := openLogAttrs(recallURL, target, command, args, openerID, fallback)
+// Open resolves targetURL to a local command and executes it.
+func Open(ctx context.Context, cfg *configv1.RecallConfig, targetURL string, options Options) error {
+	invocation, err := Resolve(cfg, targetURL, options)
+	if err != nil {
+		return err
+	}
+	runner := options.Runner
+	if runner == nil {
+		runner = runCommand
+	}
+	return runAndLog(ctx, runner, options.Logger, invocation)
+}
+
+func runAndLog(ctx context.Context, runner Runner, logger *slog.Logger, invocation Invocation) error {
+	attrs := openLogAttrs(invocation)
 	if logger != nil {
 		logger.InfoContext(ctx, "recall-open dispatch", attrs...)
 	}
-	err := runner(ctx, command, args)
+	err := runner(ctx, invocation.Command, invocation.Args)
 	if err != nil && logger != nil {
 		logger.ErrorContext(ctx, "recall-open dispatch failed", append(attrs, "error", err.Error())...)
 	}
 	return err
 }
 
-func openLogAttrs(recallURL string, target Target, command string, args []string, openerID string, fallback bool) []any {
+func openLogAttrs(invocation Invocation) []any {
+	target := invocation.Target
 	attrs := []any{
-		"recall_url", recallURL,
+		"recall_url", invocation.RecallURL,
 		"target_type", target.Type,
-		"command", command,
-		"args", args,
-		"fallback", fallback,
+		"command", invocation.Command,
+		"args", invocation.Args,
+		"fallback", invocation.Fallback,
 	}
-	if openerID != "" {
-		attrs = append(attrs, "opener_id", openerID)
+	if invocation.OpenerID != "" {
+		attrs = append(attrs, "opener_id", invocation.OpenerID)
 	}
 	if target.Type == TargetTypeFile {
 		attrs = append(attrs, "target_path", target.Path)

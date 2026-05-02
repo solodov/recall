@@ -89,11 +89,16 @@ func TestResultFieldV1KeepsTypedValues(t *testing.T) {
 	result := nestedMessageDescriptor(t, messageDescriptor(t, "SearchResponse"), "Result")
 	fieldMessage := nestedMessageDescriptor(t, result, "Field")
 	fields := fieldMessage.Fields()
-	if fields.Len() != 4 {
-		t.Fatalf("Field field count = %d, want key and three typed value fields", fields.Len())
+	if fields.Len() != 5 {
+		t.Fatalf("Field field count = %d, want key, hidden, and three typed value fields", fields.Len())
 	}
 	if field := fields.ByNumber(1); field == nil || string(field.Name()) != "key" || field.ContainingOneof() != nil {
 		t.Fatalf("Field field 1 = %v, want key outside value oneof", field)
+	}
+	if field := fields.ByNumber(5); field == nil || string(field.Name()) != "hidden" || !field.HasPresence() {
+		t.Fatalf("Field field 5 = %v, want optional hidden", field)
+	} else if oneof := field.ContainingOneof(); oneof != nil && string(oneof.Name()) == "value" {
+		t.Fatalf("Field field 5 is in oneof %v, want hidden outside value oneof", oneof)
 	}
 	for number, name := range map[protoreflect.FieldNumber]string{2: "text", 3: "integer", 4: "timestamp"} {
 		field := fields.ByNumber(number)

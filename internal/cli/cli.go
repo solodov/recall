@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -16,9 +17,11 @@ import (
 	"github.com/solodov/recall/internal/render"
 	"github.com/solodov/recall/internal/runtime"
 	"github.com/solodov/recall/internal/searchclient"
+	"github.com/solodov/recall/internal/tui"
 	configv1 "github.com/solodov/recall/proto/recall/config/v1"
 	searchv1 "github.com/solodov/recall/proto/recall/search/v1"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -35,6 +38,9 @@ type RuntimeFactory func(context.Context, RuntimeOptions) (runtime.Context, erro
 // CapabilityLister returns provider-advertised selectors for list output.
 type CapabilityLister func(context.Context, *configv1.RecallConfig) (map[string]ProviderCapabilities, error)
 
+// TUIRunner starts the interactive search frontend.
+type TUIRunner func(context.Context, tui.Options) error
+
 // ProviderCapabilities contains one provider's advertised selector surfaces.
 type ProviderCapabilities struct {
 	Selectors []string
@@ -50,6 +56,7 @@ type RuntimeOptions struct {
 // App contains command dependencies so the query-first CLI can be tested
 // without launching real provider processes.
 type App struct {
+	Stdin  io.Reader
 	Stdout io.Writer
 	Stderr io.Writer
 
@@ -57,11 +64,16 @@ type App struct {
 	Search           SearchRunner
 	ListCapabilities CapabilityLister
 	NewRuntime       RuntimeFactory
+	RunTUI           TUIRunner
 }
 
 // Run parses recall commands, loads provider config, dispatches searches, and
 // renders provider-agnostic output.
 func (app App) Run(ctx context.Context, args []string) error {
+	stdin := app.Stdin
+	if stdin == nil {
+		stdin = strings.NewReader("")
+	}
 	stdout := app.Stdout
 	if stdout == nil {
 		stdout = io.Discard
@@ -72,11 +84,11 @@ func (app App) Run(ctx context.Context, args []string) error {
 	}
 
 	options := commandOptions{logLevel: "off", format: string(outputFormatHuman), grouped: true}
-	cmd := app.newRootCommand(stdout, stderr, &options)
+	cmd := app.newRootCommand(stdin, stdout, stderr, &options)
 	cmd.SetArgs(expandListSourcesAlias(args))
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
-	cmd.SetIn(strings.NewReader(""))
+	cmd.SetIn(stdin)
 	return cmd.ExecuteContext(ctx)
 }
 
@@ -129,17 +141,18 @@ type commandOptions struct {
 	listSources bool
 }
 
-func (app App) newRootCommand(stdout io.Writer, stderr io.Writer, options *commandOptions) *cobra.Command {
+func (app App) newRootCommand(stdin io.Reader, stdout io.Writer, stderr io.Writer, options *commandOptions) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "recall [flags] QUERY",
+		Use:   "recall [flags] [QUERY]",
 		Short: "Search configured personal-search providers",
 		Long: strings.TrimSpace(`recall searches configured personal-search providers, such as code, notes, calendars, or mail providers. It sends your query to enabled providers, blends provider-local ranks, and renders one combined result list.
 
-The root command is query-first: all positional arguments are joined into the provider query. Put recall flags before the query when the query contains provider-owned operators like -in:test. Use -ls/--list-sources to see which corpora are configured.
+The root command is query-first: all positional arguments are joined into the provider query. With no query in an interactive terminal, recall opens the search TUI. Put recall flags before the query when the query contains provider-owned operators like -in:test. Use -ls/--list-sources to see which corpora are configured.
 
 Selectors:
   --selector/-s selects providers or provider surfaces, such as code or code:file:content.`),
-		Example: strings.TrimSpace(`recall -ls
+		Example: strings.TrimSpace(`recall
+recall -ls
 recall sample
 recall -s code "foo -in:test"
 recall -s code:file:name router
@@ -150,7 +163,7 @@ recall --config ./examples/config.txtpb sample`),
 			if options.listSources && len(args) > 0 {
 				return errors.New("--list-sources cannot be combined with a query")
 			}
-			if len(args) == 0 && !options.listSources {
+			if len(args) == 0 && !options.listSources && !app.canStartTUI(stdin, stdout) {
 				return missingQueryError()
 			}
 			return nil
@@ -166,6 +179,9 @@ recall --config ./examples/config.txtpb sample`),
 					return err
 				}
 				return renderProviders(stdout, loaded.Config, capabilities)
+			}
+			if len(args) == 0 {
+				return app.runTUI(cmd.Context(), stdin, stdout, *options)
 			}
 			return app.runSearch(cmd.Context(), stdout, stderr, *options, args)
 		},
@@ -194,6 +210,7 @@ notes, calendars, or mail. It sends your query to enabled providers, blends thei
 provider-local rankings, and renders one combined result list.
 
 Common commands:
+  recall                                   open the interactive search TUI in a terminal
   recall -ls                               list configured corpora/providers
   recall sample                            search all enabled providers
   recall -s code "foo -in:test"             search only the code corpus
@@ -280,6 +297,45 @@ func (app App) runSearch(ctx context.Context, stdout io.Writer, stderr io.Writer
 		return errors.Join(renderErr, searchErr)
 	}
 	return searchErr
+}
+
+func (app App) runTUI(ctx context.Context, stdin io.Reader, stdout io.Writer, options commandOptions) error {
+	runtimeOptions, err := options.runtimeOptions()
+	if err != nil {
+		return err
+	}
+	run, err := app.newRuntime(ctx, runtimeOptions)
+	if err != nil {
+		return err
+	}
+	loaded, err := app.loadConfigWithLocations(options.configPath)
+	if err != nil {
+		return err
+	}
+	search := app.Search
+	if search == nil {
+		search = orchestrator.Search
+	}
+	runner := app.RunTUI
+	if runner == nil {
+		runner = tui.Run
+	}
+	return runner(ctx, tui.Options{
+		Config:  loaded.Config,
+		Runtime: run,
+		Search:  tui.SearchFunc(search),
+		Input:   stdin,
+		Output:  stdout,
+	})
+}
+
+func (app App) canStartTUI(stdin io.Reader, stdout io.Writer) bool {
+	if app.RunTUI != nil {
+		return true
+	}
+	input, inputOK := stdin.(*os.File)
+	output, outputOK := stdout.(*os.File)
+	return inputOK && outputOK && term.IsTerminal(int(input.Fd())) && term.IsTerminal(int(output.Fd()))
 }
 
 type outputFormat string

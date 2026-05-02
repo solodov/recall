@@ -161,11 +161,12 @@ func TestFieldHelpersDecodeTypedFields(t *testing.T) {
 		textField("title", "Example"),
 		integerField("line", 42),
 		timestampField("updated_at", updatedAt),
+		hiddenTextField("raw_payload", "machine only"),
 	}}
 
 	fields := Fields(result)
-	if len(fields) != 3 {
-		t.Fatalf("field count = %d, want 3", len(fields))
+	if len(fields) != 4 {
+		t.Fatalf("field count = %d, want 4", len(fields))
 	}
 	if fields[0].Kind != FieldKindText || fields[0].Text != "Example" {
 		t.Fatalf("text field = %#v", fields[0])
@@ -175,6 +176,9 @@ func TestFieldHelpersDecodeTypedFields(t *testing.T) {
 	}
 	if fields[2].Kind != FieldKindTimestamp || !fields[2].Timestamp.Equal(updatedAt) {
 		t.Fatalf("timestamp field = %#v", fields[2])
+	}
+	if fields[3].Kind != FieldKindText || fields[3].Text != "machine only" || !fields[3].Hidden {
+		t.Fatalf("hidden field = %#v", fields[3])
 	}
 	field, ok := FieldByKey(result, "line")
 	if !ok || field.Integer != 42 {
@@ -229,6 +233,12 @@ func integerField(key string, value int64) *searchv1.SearchResponse_Result_Field
 		Key:   key,
 		Value: &searchv1.SearchResponse_Result_Field_Integer{Integer: value},
 	}
+}
+
+func hiddenTextField(key string, value string) *searchv1.SearchResponse_Result_Field {
+	field := textField(key, value)
+	field.Hidden = proto.Bool(true)
+	return field
 }
 
 func timestampField(key string, value time.Time) *searchv1.SearchResponse_Result_Field {
