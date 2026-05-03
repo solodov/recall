@@ -19,6 +19,8 @@ For provider calls, the same protobuf message definitions travel over local stdi
 
 This gives recall a stable contract without freezing the ecosystem. New fields can be added with new tag numbers, removed fields can be reserved, and breaking changes can move to a new versioned package such as `recall.search.v2`.
 
+Protobuf also does not require every provider to have a generated-code build step. Generated Go types and the public SDK are the easiest path for Go providers, but a provider only needs to implement the small stdio or gRPC boundary. For stdio, any executable can read one request from stdin, inspect the final `/<service>/<method>` argument, and write one protobuf response to stdout. That executable can be a shell script using `protoc`, a Python script using dynamic protobuf support, or a compiled service.
+
 ## Sources, providers, and transports
 
 A source is the logical corpus operators search, identified by the configured provider `id`, such as `code`, `github`, `notion`, or `jira`. A provider is the implementation of that source. A transport is only how recall reaches that provider.

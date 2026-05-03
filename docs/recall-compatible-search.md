@@ -116,6 +116,12 @@ List advertised surfaces with:
 printf '' | recall-example-provider /recall.search.v1.SearchProvider/ListCapabilities
 ```
 
+## Provider implementation does not require code generation
+
+The Go SDK is a convenience, not a requirement. A stdio provider can be any executable that accepts the final RPC path argument, reads one protobuf request from stdin, writes one protobuf response to stdout, and exits non-zero for fatal errors.
+
+Normal recall calls send compact binary protobuf requests. Providers may respond with binary protobuf or textproto because recall auto-detects response format. That means a shell script can use `protoc --decode=recall.search.v1.SearchRequest` to inspect stdin, branch on `/recall.search.v1.SearchProvider/Search` or `/recall.search.v1.SearchProvider/ListCapabilities`, and print a textproto response. Small wrappers can start this way and move to generated types or the Go SDK only when that reduces maintenance cost.
+
 ## Go provider SDK
 
 Go providers should import the public SDK instead of `internal` packages:
