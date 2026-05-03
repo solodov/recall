@@ -73,6 +73,8 @@ These integrations are separate provider binaries. Add one to your registry and 
 
 A recall source is a provider implementing `recall.search.v1.SearchProvider` from [proto/recall/search/v1/search.proto](proto/recall/search/v1/search.proto). Providers advertise local search surfaces such as `file:content`, `file:name`, or `pr:content`; recall prefixes them with the configured source id, such as `code:file:content` or `github:pr:content`.
 
+See [docs/architecture.md](docs/architecture.md) for the architectural choices behind protobuf contracts, local and remote transports, transport fallback, capability discovery, and query fan-out.
+
 `recall` owns orchestration and presentation:
 
 - load the operator registry;
@@ -92,6 +94,29 @@ Providers own source-specific behavior:
 - open targets and grouping.
 
 This keeps powerful provider-specific search features available without making the CLI a pile of disconnected aliases.
+
+## Install
+
+Install the CLI and any providers you want available on your `PATH`:
+
+```bash
+# Main recall search CLI.
+go install github.com/solodov/recall/cmd/recall@latest
+
+# Helper for opening recall:// terminal links.
+go install github.com/solodov/recall/cmd/recall-open@latest
+
+# Local ripgrep-backed file search provider.
+go install github.com/solodov/recall/cmd/recall-ripgrep-provider@latest
+
+# GitHub provider backed by the gh CLI.
+go install github.com/solodov/recall/cmd/recall-gh-provider@latest
+
+# Deterministic fixture provider for examples and contract testing.
+go install github.com/solodov/recall/cmd/recall-example-provider@latest
+```
+
+`go install` writes binaries to `$(go env GOBIN)`, or `$(go env GOPATH)/bin` when `GOBIN` is unset.
 
 ## Run the example
 
