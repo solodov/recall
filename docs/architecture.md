@@ -13,13 +13,42 @@ Code comments in those proto files are authoritative for field-level behavior. T
 
 Protobuf gives recall one schema language for both configuration and provider RPC payloads.
 
-For configuration, the registry is written as textproto so operators can review and edit it directly, while recall still decodes it into typed messages and validates semantic constraints before use. The protobuf shape handles field names, types, `oneof` transport selection, optional values, and forward-compatible field numbering. The Go validation layer adds rules protobuf cannot express, such as required provider IDs, positive timeouts, unique IDs, and valid opener filters. See [internal/config/config.go](../internal/config/config.go).
+For configuration, the registry is written as textproto so operators can review and edit it directly, while recall still decodes it into typed messages and validates semantic constraints before use. The protobuf shape handles field names, types, `oneof` transport selection, optional values, merge semantics for composed fragments, and forward-compatible field numbering. The Go validation layer adds rules protobuf cannot express, such as required provider IDs, positive timeouts, unique IDs, and valid opener filters. See [internal/config/config.go](../internal/config/config.go).
 
 For provider calls, the same protobuf message definitions travel over local stdio RPC or network gRPC. Recall uses compact binary protobuf for normal stdio calls and gRPC uses the standard protobuf wire format. The provider SDK can also auto-detect textproto for direct human testing. See [internal/stdiorpc/stdiorpc.go](../internal/stdiorpc/stdiorpc.go) and [provider/provider.go](../provider/provider.go).
 
 This gives recall a stable contract without freezing the ecosystem. New fields can be added with new tag numbers, removed fields can be reserved, and breaking changes can move to a new versioned package such as `recall.search.v2`.
 
 Protobuf also does not require every provider to have a generated-code build step. Generated Go types and the public SDK are the easiest path for Go providers, but a provider only needs to implement the small stdio or gRPC boundary. For stdio, any executable can read one request from stdin, inspect the final `/<service>/<method>` argument, and write one protobuf response to stdout. That executable can be a shell script using `protoc`, a Python script using dynamic protobuf support, or a compiled service.
+
+## Config composition
+
+Recall treats configuration as one logical registry assembled from one base file plus optional fragments. The default base path is `$XDG_CONFIG_HOME/recall/config.txtpb`, falling back to `$HOME/.config/recall/config.txtpb`. When the base file is loaded, recall also scans the sibling `config.d` directory and merges `*.txtpb` fragments in lexical order.
+
+```text
+~/.config/recall/
+  config.txtpb
+  config.d/
+    10-personal-code.txtpb
+    20-work-code.txtpb
+```
+
+Fragments use the same `RecallConfig` message as the base file. This keeps composition simple: adding a source, opener, or future registry field uses the same textproto syntax whether it lives in the base file or a fragment. Protobuf merge semantics append repeated fields, then recall validates the final merged registry so duplicate provider or opener IDs remain errors.
+
+Recall does not implement include lists or activation predicates. Every `*.txtpb` file that exists in `config.d` participates in the composed registry. Environment-specific selection is owned outside recall by the operator's dotfile manager, such as `rcm`, which can create or omit symlinks in `config.d` for each machine or context.
+
+```textproto
+providers {
+  id: "work-code"
+  enabled: true
+  transports { stdio { command: "recall-ripgrep-provider" args: "--root" args: "/Users/peter/work/backend" } }
+  weight: 1
+  timeout_ms: 5000
+  default_limit: 50
+}
+```
+
+This intentionally keeps composition structural rather than policy-driven. A portable base config does not need to know every work, personal, or host-specific fragment by name, and recall does not need to model environment names. `--config` can point at either a file or a directory containing `config.txtpb`, and directory mode uses the same sibling `config.d` composition rule.
 
 ## Sources, providers, and transports
 

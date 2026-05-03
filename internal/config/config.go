@@ -14,11 +14,13 @@ import (
 	configv1 "github.com/solodov/recall/proto/recall/config/v1"
 
 	"google.golang.org/protobuf/encoding/prototext"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
-	configDirName  = "recall"
-	configFileName = "config.txtpb"
+	configDirName         = "recall"
+	configFileName        = "config.txtpb"
+	configFragmentDirName = "config.d"
 )
 
 var (
@@ -82,35 +84,102 @@ func LoadFile(path string) (*configv1.RecallConfig, error) {
 	return loaded.Config, nil
 }
 
-// LoadFileWithLocations reads a textproto provider registry and keeps provider
-// block line numbers as best-effort UI metadata; config validity never depends
-// on source-location discovery.
+// LoadFileWithLocations reads the main textproto provider registry plus sibling
+// config.d/*.txtpb fragments. Provider block line numbers remain best-effort UI
+// metadata; config validity never depends on source-location discovery.
 func LoadFileWithLocations(path string) (LoadedConfig, error) {
-	data, err := os.ReadFile(path)
+	files, err := configCompositionFiles(path)
+	if err != nil {
+		return LoadedConfig{}, err
+	}
+
+	composed := &configv1.RecallConfig{}
+	providerLocations := map[string]Location{}
+	for _, file := range files {
+		fragment, err := loadConfigFragment(file)
+		if err != nil {
+			return LoadedConfig{}, err
+		}
+		proto.Merge(composed, fragment.Config)
+		for providerID, location := range fragment.ProviderLocations {
+			providerLocations[providerID] = location
+		}
+	}
+	if err := Validate(composed); err != nil {
+		return LoadedConfig{}, fmt.Errorf("validate recall config %s: %w", path, err)
+	}
+	return LoadedConfig{Config: composed, ProviderLocations: providerLocations}, nil
+}
+
+type loadedFragment struct {
+	Config            *configv1.RecallConfig
+	ProviderLocations map[string]Location
+}
+
+func configCompositionFiles(path string) ([]string, error) {
+	basePath, err := configBasePath(path)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := os.Stat(basePath); err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("recall config not found at %s; create %s before running recall", basePath, basePath)
+		}
+		return nil, fmt.Errorf("stat recall config %s: %w", basePath, err)
+	}
+
+	files := []string{basePath}
+	fragmentDir := filepath.Join(filepath.Dir(basePath), configFragmentDirName)
+	entries, err := os.ReadDir(fragmentDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return LoadedConfig{}, fmt.Errorf("recall config not found at %s; create %s before running recall", path, path)
+			return files, nil
 		}
-		return LoadedConfig{}, fmt.Errorf("read recall config %s: %w", path, err)
+		return nil, fmt.Errorf("read recall config fragments %s: %w", fragmentDir, err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".txtpb" {
+			continue
+		}
+		files = append(files, filepath.Join(fragmentDir, entry.Name()))
+	}
+	return files, nil
+}
+
+func configBasePath(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", errors.New("recall config path is empty")
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return path, nil
+		}
+		return "", fmt.Errorf("stat recall config %s: %w", path, err)
+	}
+	if info.IsDir() {
+		return filepath.Join(path, configFileName), nil
+	}
+	return path, nil
+}
+
+func loadConfigFragment(path string) (loadedFragment, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return loadedFragment{}, fmt.Errorf("read recall config %s: %w", path, err)
 	}
 
 	cfg := &configv1.RecallConfig{}
 	unmarshalOptions := prototext.UnmarshalOptions{DiscardUnknown: false}
 	if err := unmarshalOptions.Unmarshal(data, cfg); err != nil {
-		return LoadedConfig{}, fmt.Errorf("parse recall config %s: %w", path, err)
+		return loadedFragment{}, fmt.Errorf("parse recall config %s: %w", path, err)
 	}
-	if err := Validate(cfg); err != nil {
-		return LoadedConfig{}, fmt.Errorf("validate recall config %s: %w", path, err)
-	}
-
 	locationPath := path
 	if absolutePath, err := filepath.Abs(path); err == nil {
 		locationPath = absolutePath
 	}
-	return LoadedConfig{
-		Config:            cfg,
-		ProviderLocations: locateProviderLocations(locationPath, data, cfg.GetProviders()),
-	}, nil
+	return loadedFragment{Config: cfg, ProviderLocations: locateProviderLocations(locationPath, data, cfg.GetProviders())}, nil
 }
 
 // Validate enforces registry semantics that protobuf shape alone cannot encode.

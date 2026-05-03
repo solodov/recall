@@ -136,7 +136,22 @@ examples/run-example.sh --format json rollout
 
 ## Configure sources
 
-The default registry path is `$XDG_CONFIG_HOME/recall/config.txtpb`, falling back to `$HOME/.config/recall/config.txtpb`. Example registry snippets live in:
+The default registry path is `$XDG_CONFIG_HOME/recall/config.txtpb`, falling back to `$HOME/.config/recall/config.txtpb`. Configuration is composable: recall loads the base file, then merges sibling fragments from `config.d/*.txtpb` in lexical order. `--config` may point at either a config file or a directory containing `config.txtpb`.
+
+Each fragment uses the same `RecallConfig` textproto shape as the base file. Recall applies every fragment that exists in `config.d`; environment-specific selection is intentionally external, so tools such as `rcm` can create or omit fragment symlinks per machine without recall needing activation predicates or include lists.
+
+```textproto
+providers {
+  id: "work-code"
+  enabled: true
+  weight: 1.0
+  timeout_ms: 5000
+  default_limit: 50
+  transports { stdio { command: "recall-ripgrep-provider" args: "--root" args: "/Users/peter/work/backend" } }
+}
+```
+
+Example registry snippets live in:
 
 - [examples/config.txtpb](examples/config.txtpb)
 - [examples/ripgrep.config.txtpb](examples/ripgrep.config.txtpb)

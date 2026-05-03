@@ -105,6 +105,92 @@ openers {
 	}
 }
 
+func TestLoadFileMergesConfigDFragmentsInLexicalOrder(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.txtpb")
+	if err := os.WriteFile(path, []byte(providerConfigBlock("core")), 0o600); err != nil {
+		t.Fatalf("write base config: %v", err)
+	}
+	fragmentDir := filepath.Join(dir, "config.d")
+	if err := os.Mkdir(fragmentDir, 0o700); err != nil {
+		t.Fatalf("mkdir config.d: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(fragmentDir, "20-zeta.txtpb"), []byte(providerConfigBlock("zeta")), 0o600); err != nil {
+		t.Fatalf("write zeta fragment: %v", err)
+	}
+	alphaPath := filepath.Join(fragmentDir, "10-alpha.txtpb")
+	if err := os.WriteFile(alphaPath, []byte(providerConfigBlock("alpha")), 0o600); err != nil {
+		t.Fatalf("write alpha fragment: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(fragmentDir, "README.md"), []byte("ignored"), 0o600); err != nil {
+		t.Fatalf("write ignored file: %v", err)
+	}
+
+	loaded, err := LoadFileWithLocations(path)
+	if err != nil {
+		t.Fatalf("LoadFileWithLocations returned error: %v", err)
+	}
+
+	providers := loaded.Config.GetProviders()
+	if len(providers) != 3 {
+		t.Fatalf("provider count = %d, want base plus two fragments", len(providers))
+	}
+	for index, want := range []string{"core", "alpha", "zeta"} {
+		if providers[index].GetId() != want {
+			t.Fatalf("providers[%d].id = %q, want %q", index, providers[index].GetId(), want)
+		}
+	}
+	if location := loaded.ProviderLocations["alpha"]; location.Path != alphaPath || location.Line != 1 || location.Column != 1 {
+		t.Fatalf("alpha location = %#v, want fragment path line 1 column 1", location)
+	}
+}
+
+func TestLoadFileMergesConfigDFragmentSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.txtpb")
+	if err := os.WriteFile(path, []byte(providerConfigBlock("core")), 0o600); err != nil {
+		t.Fatalf("write base config: %v", err)
+	}
+	fragmentDir := filepath.Join(dir, "config.d")
+	if err := os.Mkdir(fragmentDir, 0o700); err != nil {
+		t.Fatalf("mkdir config.d: %v", err)
+	}
+	targetPath := filepath.Join(dir, "work-fragment.txtpb")
+	if err := os.WriteFile(targetPath, []byte(providerConfigBlock("linked-work")), 0o600); err != nil {
+		t.Fatalf("write linked fragment target: %v", err)
+	}
+	if err := os.Symlink(targetPath, filepath.Join(fragmentDir, "10-work.txtpb")); err != nil {
+		t.Skipf("symlinks are not available: %v", err)
+	}
+
+	cfg, err := LoadFile(path)
+	if err != nil {
+		t.Fatalf("LoadFile returned error: %v", err)
+	}
+	providers := cfg.GetProviders()
+	if len(providers) != 2 {
+		t.Fatalf("provider count = %d, want base plus linked fragment", len(providers))
+	}
+	if providers[0].GetId() != "core" || providers[1].GetId() != "linked-work" {
+		t.Fatalf("providers = %#v, want core then linked-work", providers)
+	}
+}
+
+func TestLoadFileAcceptsConfigDirectoryPath(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.txtpb"), []byte(providerConfigBlock("core")), 0o600); err != nil {
+		t.Fatalf("write base config: %v", err)
+	}
+
+	cfg, err := LoadFile(dir)
+	if err != nil {
+		t.Fatalf("LoadFile returned error: %v", err)
+	}
+	if len(cfg.GetProviders()) != 1 || cfg.GetProviders()[0].GetId() != "core" {
+		t.Fatalf("providers = %#v, want core provider from directory config", cfg.GetProviders())
+	}
+}
+
 func TestLoadFileWithLocationsRecordsProviderBlockLines(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.txtpb")
 	lines := []string{
@@ -186,6 +272,18 @@ func TestValidateRejectsInvalidOpener(t *testing.T) {
 			t.Fatalf("Validate error %q does not contain %q", message, want)
 		}
 	}
+}
+
+func providerConfigBlock(id string) string {
+	return `providers {
+  id: "` + id + `"
+  enabled: true
+  weight: 1.0
+  timeout_ms: 1500
+  default_limit: 30
+  transports { stdio { command: "provider" } }
+}
+`
 }
 
 func TestValidateRejectsInvalidProviderConfig(t *testing.T) {
