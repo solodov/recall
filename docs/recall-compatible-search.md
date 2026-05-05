@@ -2,7 +2,7 @@
 
 `recall` treats every configured source as an implementation of `recall.search.v1.SearchProvider`. A provider owns its source-specific storage, authentication, query dialect, indexing, and local result ordering. `recall` owns loading the operator registry, selecting providers, invoking provider RPCs, validating responses, blending provider-local ranks, and rendering results.
 
-The operator registry lives at `$XDG_CONFIG_HOME/recall/config.txtpb`, falling back to `$HOME/.config/recall/config.txtpb`. Registry entries declare provider availability and transport only; they do not name a search method, filters, or indexing behavior.
+The operator registry lives in `$XDG_CONFIG_HOME/recall`, falling back to `$HOME/.config/recall`. Recall loads direct `*.txtpb` files in lexical order and merges them into one registry. Registry entries declare provider availability and transport only; they do not name a search method, filters, or indexing behavior.
 
 The authoritative implementer contract is `proto/recall/search/v1/search.proto`. Use its comments for selector taxonomy, result field rules, validation constraints, and open-target boundaries.
 

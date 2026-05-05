@@ -17,7 +17,7 @@ import (
 
 func main() {
 	flags := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
-	configPath := flags.String("config", "", "provider registry path")
+	configPath := flags.String("config", "", "provider registry file or directory path")
 	logPath := flags.String("log-path", "", "main rotated log path")
 	logLevel := flags.String("log-level", "off", "also print logs to stderr at level: debug|info|warn|error|off")
 	flags.Parse(os.Args[1:])

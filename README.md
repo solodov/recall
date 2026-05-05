@@ -136,9 +136,9 @@ examples/run-example.sh --format json rollout
 
 ## Configure sources
 
-The default registry path is `$XDG_CONFIG_HOME/recall/config.txtpb`, falling back to `$HOME/.config/recall/config.txtpb`. Configuration is composable: recall loads the base file, then merges sibling fragments from `config.d/*.txtpb` in lexical order. `--config` may point at either a config file or a directory containing `config.txtpb`.
+The default registry path is `$XDG_CONFIG_HOME/recall`, falling back to `$HOME/.config/recall`. Recall loads every direct `*.txtpb` file in that directory in lexical order and merges them into one registry. `--config` may point at either a single config file or a directory of config fragments.
 
-Each fragment uses the same `RecallConfig` textproto shape as the base file. Recall applies every fragment that exists in `config.d`; environment-specific selection is intentionally external, so tools such as `rcm` can create or omit fragment symlinks per machine without recall needing activation predicates or include lists.
+Each fragment uses the same `RecallConfig` textproto shape. Environment-specific selection is intentionally external, so tools such as `rcm` can create or omit fragment files or symlinks per machine without recall needing activation predicates or include lists.
 
 ```textproto
 providers {

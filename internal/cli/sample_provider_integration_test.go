@@ -19,7 +19,7 @@ func TestSampleProviderExercisesStdioSearchAPI(t *testing.T) {
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatalf("create config dir: %v", err)
 	}
-	configPath := filepath.Join(configDir, "config.txtpb")
+	configPath := filepath.Join(configDir, "00-example.txtpb")
 	config := `
 providers {
   id: "example"

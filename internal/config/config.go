@@ -18,9 +18,8 @@ import (
 )
 
 const (
-	configDirName         = "recall"
-	configFileName        = "config.txtpb"
-	configFragmentDirName = "config.d"
+	configDirName       = "recall"
+	configFileExtension = ".txtpb"
 )
 
 var (
@@ -42,21 +41,21 @@ type Location struct {
 	Column uint32
 }
 
-// DefaultPath returns the operator-owned registry path in the XDG config
+// DefaultPath returns the operator-owned registry directory in the XDG config
 // hierarchy, falling back to $HOME/.config when XDG_CONFIG_HOME is unset.
 func DefaultPath() (string, error) {
 	if xdgConfigHome := os.Getenv("XDG_CONFIG_HOME"); xdgConfigHome != "" {
-		return filepath.Join(xdgConfigHome, configDirName, configFileName), nil
+		return filepath.Join(xdgConfigHome, configDirName), nil
 	}
 
 	home := os.Getenv("HOME")
 	if home == "" {
 		return "", errors.New("resolve recall config path: XDG_CONFIG_HOME and HOME are unset")
 	}
-	return filepath.Join(home, ".config", configDirName, configFileName), nil
+	return filepath.Join(home, ".config", configDirName), nil
 }
 
-// LoadDefault reads and validates the registry from the default XDG config path.
+// LoadDefault reads and validates the registry from the default XDG config directory.
 func LoadDefault() (*configv1.RecallConfig, error) {
 	loaded, err := LoadDefaultWithLocations()
 	if err != nil {
@@ -75,7 +74,8 @@ func LoadDefaultWithLocations() (LoadedConfig, error) {
 	return LoadFileWithLocations(path)
 }
 
-// LoadFile reads a textproto provider registry and validates it before use.
+// LoadFile reads one textproto provider registry file, or all .txtpb files in a
+// registry directory, and validates the composed registry before use.
 func LoadFile(path string) (*configv1.RecallConfig, error) {
 	loaded, err := LoadFileWithLocations(path)
 	if err != nil {
@@ -84,9 +84,10 @@ func LoadFile(path string) (*configv1.RecallConfig, error) {
 	return loaded.Config, nil
 }
 
-// LoadFileWithLocations reads the main textproto provider registry plus sibling
-// config.d/*.txtpb fragments. Provider block line numbers remain best-effort UI
-// metadata; config validity never depends on source-location discovery.
+// LoadFileWithLocations reads one textproto provider registry file, or all
+// direct .txtpb files in a registry directory in lexical order. Provider block
+// line numbers remain best-effort UI metadata; config validity never depends on
+// source-location discovery.
 func LoadFileWithLocations(path string) (LoadedConfig, error) {
 	files, err := configCompositionFiles(path)
 	if err != nil {
@@ -117,51 +118,34 @@ type loadedFragment struct {
 }
 
 func configCompositionFiles(path string) ([]string, error) {
-	basePath, err := configBasePath(path)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := os.Stat(basePath); err != nil {
-		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("recall config not found at %s; create %s before running recall", basePath, basePath)
-		}
-		return nil, fmt.Errorf("stat recall config %s: %w", basePath, err)
-	}
-
-	files := []string{basePath}
-	fragmentDir := filepath.Join(filepath.Dir(basePath), configFragmentDirName)
-	entries, err := os.ReadDir(fragmentDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return files, nil
-		}
-		return nil, fmt.Errorf("read recall config fragments %s: %w", fragmentDir, err)
-	}
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".txtpb" {
-			continue
-		}
-		files = append(files, filepath.Join(fragmentDir, entry.Name()))
-	}
-	return files, nil
-}
-
-func configBasePath(path string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return "", errors.New("recall config path is empty")
+		return nil, errors.New("recall config path is empty")
 	}
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return path, nil
+			return nil, fmt.Errorf("recall config not found at %s; create %s before running recall", path, path)
 		}
-		return "", fmt.Errorf("stat recall config %s: %w", path, err)
+		return nil, fmt.Errorf("stat recall config %s: %w", path, err)
 	}
-	if info.IsDir() {
-		return filepath.Join(path, configFileName), nil
+	if !info.IsDir() {
+		return []string{path}, nil
 	}
-	return path, nil
+
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return nil, fmt.Errorf("read recall config directory %s: %w", path, err)
+	}
+	files := []string{}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != configFileExtension {
+			continue
+		}
+		files = append(files, filepath.Join(path, entry.Name()))
+	}
+	sort.Strings(files)
+	return files, nil
 }
 
 func loadConfigFragment(path string) (loadedFragment, error) {

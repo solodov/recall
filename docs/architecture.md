@@ -23,19 +23,18 @@ Protobuf also does not require every provider to have a generated-code build ste
 
 ## Config composition
 
-Recall treats configuration as one logical registry assembled from one base file plus optional fragments. The default base path is `$XDG_CONFIG_HOME/recall/config.txtpb`, falling back to `$HOME/.config/recall/config.txtpb`. When the base file is loaded, recall also scans the sibling `config.d` directory and merges `*.txtpb` fragments in lexical order.
+Recall treats configuration as one logical registry assembled from direct `*.txtpb` files in one config directory. The default directory is `$XDG_CONFIG_HOME/recall`, falling back to `$HOME/.config/recall`. Recall sorts matching files lexicographically and merges them in that order.
 
 ```text
 ~/.config/recall/
-  config.txtpb
-  config.d/
-    10-personal-code.txtpb
-    20-work-code.txtpb
+  00-base.txtpb
+  10-personal-code.txtpb
+  20-work-code.txtpb
 ```
 
-Fragments use the same `RecallConfig` message as the base file. This keeps composition simple: adding a source, opener, or future registry field uses the same textproto syntax whether it lives in the base file or a fragment. Protobuf merge semantics append repeated fields, then recall validates the final merged registry so duplicate provider or opener IDs remain errors.
+Every file uses the same `RecallConfig` message. This keeps composition simple: adding a source, opener, or future registry field uses the same textproto syntax in every fragment. Protobuf merge semantics append repeated fields, then recall validates the final merged registry so duplicate provider or opener IDs remain errors.
 
-Recall does not implement include lists or activation predicates. Every `*.txtpb` file that exists in `config.d` participates in the composed registry. Environment-specific selection is owned outside recall by the operator's dotfile manager, such as `rcm`, which can create or omit symlinks in `config.d` for each machine or context.
+Recall does not implement include lists or activation predicates. Every direct `*.txtpb` file in the config directory participates in the composed registry. Environment-specific selection is owned outside recall by the operator's dotfile manager, such as `rcm`, which can create or omit files or symlinks for each machine or context.
 
 ```textproto
 providers {
@@ -48,7 +47,7 @@ providers {
 }
 ```
 
-This intentionally keeps composition structural rather than policy-driven. A portable base config does not need to know every work, personal, or host-specific fragment by name, and recall does not need to model environment names. `--config` can point at either a file or a directory containing `config.txtpb`, and directory mode uses the same sibling `config.d` composition rule.
+This intentionally keeps composition structural rather than policy-driven. A portable config directory does not need to name every work, personal, or host-specific fragment, and recall does not need to model environment names. `--config` can point at either one textproto file or a directory of direct `*.txtpb` fragments.
 
 ## Sources, providers, and transports
 
@@ -62,7 +61,7 @@ That means local and remote sources use the same provider contract:
 
 ```mermaid
 flowchart LR
-    Config["config.txtpb\nProvider entries"] --> Source["source id\ncode / github / notion"]
+    Config["config directory\n*.txtpb provider entries"] --> Source["source id\ncode / github / notion"]
     Source --> Contract["recall.search.v1.SearchProvider"]
     Contract --> Stdio["stdio transport\none process per RPC"]
     Contract --> GRPC["gRPC transport\nlong-running service"]
@@ -95,7 +94,7 @@ Fallback is deliberately narrow: later transports are tried only when an earlier
 ```mermaid
 sequenceDiagram
     participant CLI as recall -ls
-    participant Config as config.txtpb
+    participant Config as config directory
     participant Client as transport client
     participant Provider as SearchProvider
 

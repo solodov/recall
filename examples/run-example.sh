@@ -8,7 +8,7 @@ just --justfile "${repo_root}/Justfile" --working-directory "${repo_root}" build
 
 config_dir="$(mktemp -d "${TMPDIR:-/tmp}/recall-example.XXXXXX")"
 trap 'rm -rf "${config_dir}"' EXIT
-config_path="${config_dir}/config.txtpb"
+config_path="${config_dir}/00-example.txtpb"
 
 cat >"${config_path}" <<EOF
 providers {

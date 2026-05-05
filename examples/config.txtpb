@@ -1,5 +1,5 @@
 # Example recall provider registry.
-# Copy to ~/.config/recall/config.txtpb after installing recall-example-provider.
+# Copy into ~/.config/recall/ after installing recall-example-provider.
 # The example provider emits structured SearchResponse.results with typed fields
 # and format hints; see docs/recall-compatible-search.md for the provider contract.
 providers {

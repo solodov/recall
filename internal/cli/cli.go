@@ -189,7 +189,7 @@ recall --config ./examples/config.txtpb sample`),
 		SilenceErrors: true,
 	}
 
-	cmd.PersistentFlags().StringVar(&options.configPath, "config", "", "provider registry path")
+	cmd.PersistentFlags().StringVar(&options.configPath, "config", "", "provider registry file or directory path")
 	cmd.PersistentFlags().StringVar(&options.logPath, "log-path", "", "main rotated log path")
 	cmd.PersistentFlags().StringVar(&options.perfLogPath, "perf-log-path", "", "performance trace log path")
 	cmd.PersistentFlags().StringVar(&options.logLevel, "log-level", "off", "also print logs to stderr at level: debug|info|warn|error|off")
